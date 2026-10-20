@@ -1,0 +1,80 @@
+@if (!pane()) {
+  <div class="empty">Abre una sesión SSH para ver sus ficheros.</div>
+} @else if (!connected()) {
+  <div class="empty">El panel activo no está conectado.</div>
+} @else {
+  <div class="toolbar">
+    <button class="icon" title="Carpeta superior" [disabled]="path() === '/'" (click)="navigate(parent(path()!))">⬆</button>
+    <button class="icon" title="Refrescar" (click)="refresh()">⟳</button>
+    <button class="icon" [class.on]="pane()!.follow()" (click)="toggleFollow()"
+            [title]="pane()!.follow() ? 'Siguiendo la terminal (pulsa para desanclar)' : 'Desanclado (pulsa para seguir la terminal)'">
+      {{ pane()!.follow() ? '🔗' : '📌' }}
+    </button>
+    <button class="icon" title="Ir a la ruta de la terminal" (click)="goToTerminal()">⤓</button>
+    <button class="icon" [class.on]="showHidden()" title="Mostrar ocultos" (click)="showHidden.set(!showHidden())">👁</button>
+    <button class="icon" title="Nueva carpeta" (click)="dialog.set({ kind: 'mkdir' })">🗀＋</button>
+    <button class="icon" title="Subir ficheros" (click)="pickUpload()">⤒</button>
+  </div>
+  <input class="path" [value]="path() ?? ''" (keydown.enter)="navigate($any($event.target).value)" spellcheck="false" />
+  @if (trackingUnavailable() && pane()!.follow()) {
+    <div class="hint">
+      Esta shell no informa de su ruta.
+      <button (click)="retryHook()">Activar seguimiento</button>
+    </div>
+  }
+
+  <div class="list" [class.dropping]="dropping()" (contextmenu)="backgroundMenu($event)"
+       (dragover)="dragOver($event)" (dragleave)="dropping.set(false)" (drop)="drop($event)">
+    @if (error()) {
+      <div class="error">{{ error() }}</div>
+    }
+    @for (e of visibleEntries(); track e.path) {
+      <div class="row" [class.sel]="selected().has(e.path)" draggable="true" [title]="e.name"
+           (click)="click($event, e)" (dblclick)="open(e)" (contextmenu)="entryMenu($event, e)"
+           (dragstart)="dragStart($event, e)" (drop)="drop($event, e)">
+        <span class="ico">{{ e.isDir ? '📁' : e.type === 'link' ? '🔗' : '📄' }}</span>
+        <span class="name">{{ e.name }}</span>
+        <span class="size">{{ e.isDir ? '' : formatSize(e.size) }}</span>
+        <span class="mode">{{ formatMode(e.mode, e.isDir, e.type === 'link') }}</span>
+      </div>
+    } @empty {
+      @if (!loading() && !error()) {
+        <div class="empty">Carpeta vacía</div>
+      }
+    }
+  </div>
+}
+
+@if (transfers.list().length) {
+  <div class="transfers">
+    <div class="thead">
+      <span>Transferencias @if (transfers.active()) { ({{ transfers.active() }} activas) }</span>
+      <button class="icon" title="Limpiar terminadas" (click)="transfers.clearFinished()">🧹</button>
+    </div>
+    @for (t of transfers.list(); track t.id) {
+      <div class="transfer" [class]="t.state" [title]="t.source + ' → ' + t.target + (t.error ? '\n' + t.error : '')">
+        <span>{{ t.direction === 'up' ? '⤒' : '⤓' }}</span>
+        <span class="name">{{ t.name }}</span>
+        @if (t.state === 'running' || t.state === 'queued') {
+          <progress [max]="t.size || 1" [value]="t.transferred"></progress>
+          <button class="icon" title="Cancelar" (click)="transfers.cancel(t.id)">✕</button>
+        } @else {
+          <span class="state">{{ t.state === 'done' ? '✓' : t.state === 'cancelled' ? 'cancelada' : 'error' }}</span>
+        }
+      </div>
+    }
+  </div>
+}
+
+@if (menu(); as m) {
+  <app-context-menu [state]="m" (closed)="menu.set(null)" />
+}
+@if (dialog(); as d) {
+  @if (d.kind === 'mkdir') {
+    <app-input-dialog title="Nueva carpeta" initial="nueva carpeta" (done)="dialogDone(d, $event)" (closed)="dialog.set(null)" />
+  } @else if (d.kind === 'rename') {
+    <app-input-dialog title="Renombrar" [initial]="d.entry.name" (done)="dialogDone(d, $event)" (closed)="dialog.set(null)" />
+  } @else {
+    <app-chmod-dialog [name]="d.entry.name" [initial]="d.entry.mode" (done)="dialogDone(d, $event)" (closed)="dialog.set(null)" />
+  }
+}

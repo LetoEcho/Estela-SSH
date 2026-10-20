@@ -73,7 +73,7 @@ function harness(sessions: SshSession[], opts: { hostKey?: HostKeyAnswer[]; auth
   };
   let out = '';
   const statuses: { s: ConnStatus; e?: string }[] = [];
-  const shell = new SshShell(deps, { data: (d) => (out += d), status: (s, e) => statuses.push({ s, e }) });
+  const shell = new SshShell(deps, { data: (d) => (out += d), status: (s, e) => statuses.push({ s, e }), hook: () => {} });
   const until = async (pred: () => boolean) => {
     for (let i = 0; i < 200 && !pred(); i++) await new Promise((r) => setTimeout(r, 10));
     expect(pred()).toBe(true);

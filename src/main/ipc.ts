@@ -8,6 +8,7 @@ import { MAX_ICON_BYTES, type SecretKind } from '../shared/session';
 import { collapseHome } from './paths';
 import { platform } from './platform';
 import { Prompts } from './prompts';
+import { registerSftpIpc } from './sftp-ipc';
 import { SshShell } from './ssh/connection';
 import type { KnownHosts } from './store/known-hosts';
 import type { SecretStore } from './store/secrets';
@@ -42,9 +43,9 @@ export function registerIpc(win: BrowserWindow, { sessions, secrets, knownHosts 
   const fromWin = (e: IpcMainEvent | IpcMainInvokeEvent) => {
     if (e.sender !== win.webContents) throw new Error('IPC from unknown sender');
   };
-  const handle = <K extends keyof InvokeApi>(ch: K, fn: (...args: unknown[]) => unknown) =>
+  const handle = (ch: keyof InvokeApi, fn: (...args: unknown[]) => unknown) =>
     ipcMain.handle(ch, (e, ...args) => (fromWin(e), fn(...args)));
-  const on = <K extends keyof SendApi>(ch: K, fn: (...args: unknown[]) => void) =>
+  const on = (ch: keyof SendApi, fn: (...args: unknown[]) => void) =>
     ipcMain.on(ch, (e, ...args) => {
       try {
         fromWin(e);
@@ -125,14 +126,29 @@ export function registerIpc(win: BrowserWindow, { sessions, secrets, knownHosts 
     return `data:${mime};base64,${fs.readFileSync(file).toString('base64')}`;
   });
 
+  handle('dialog:openFiles', async (title) => {
+    const r = await dialog.showOpenDialog(win, { title: str(title), properties: ['openFile', 'multiSelections'] });
+    return r.canceled ? [] : r.filePaths;
+  });
+  handle('dialog:openDir', async (title) => {
+    const r = await dialog.showOpenDialog(win, { title: str(title), properties: ['openDirectory', 'createDirectory'] });
+    return r.canceled || !r.filePaths[0] ? null : r.filePaths[0];
+  });
+
+  const sftp = registerSftpIpc({ win, shells, handle, on, emit, str });
+
   handle('conn:open', (sessionId, cols, rows) => {
     const connId = randomUUID();
     const shell = new SshShell(connDeps, {
       data: (data) => emit('conn:data', { connId, data }),
       status: (status, error) => {
-        if (status === 'closed' || status === 'error') shells.delete(connId);
+        if (status === 'closed' || status === 'error') {
+          shells.delete(connId);
+          sftp.connectionClosed(connId);
+        }
         emit('conn:status', { connId, status, error });
       },
+      hook: (r) => emit('conn:hook', { connId, ...r }),
     });
     shells.set(connId, shell);
     const [id, c, r] = [str(sessionId), int(cols), int(rows)];
@@ -145,14 +161,19 @@ export function registerIpc(win: BrowserWindow, { sessions, secrets, knownHosts 
   on('conn:close', (id) => {
     shells.get(str(id))?.close();
     shells.delete(str(id));
+    sftp.connectionClosed(str(id));
   });
   on('prompt:answer', (id, answer) => prompts.answer(str(id), answer));
 
   // A renderer reload leaves no one to answer prompts or read output.
   const reset = () => {
     prompts.cancelAll();
-    for (const s of shells.values()) s.close();
+    for (const [id, s] of shells) {
+      s.close();
+      sftp.connectionClosed(id);
+    }
     shells.clear();
+    sftp.dispose();
   };
   win.webContents.on('did-start-navigation', (_e, _url, isInPlace, isMainFrame) => {
     if (isMainFrame && !isInPlace) reset();

@@ -119,6 +119,12 @@ export class SessionTree {
   protected sessionMenu(e: MouseEvent, s: Session): void {
     this.openMenu(e, [
       { label: 'Conectar', action: () => this.connect(s) },
+      ...(this.tabs.active()
+        ? [
+            { label: 'Abrir en panel a la derecha', action: () => this.tabs.split('row', s) },
+            { label: 'Abrir en panel abajo', action: () => this.tabs.split('column', s) },
+          ]
+        : []),
       { label: 'Editar…', action: () => this.edit.emit({ session: s, folderId: s.folderId }) },
       { label: 'Duplicar', action: () => void this.sessions.duplicate(s) },
       { label: 'Cambiar icono…', action: () => this.iconTarget.set({ kind: 'session', item: s }) },

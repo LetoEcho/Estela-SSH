@@ -1,4 +1,15 @@
-export type KeyAction = 'copy' | 'paste' | 'nextTab' | 'prevTab' | 'closeTab';
+export type KeyAction =
+  | 'copy'
+  | 'paste'
+  | 'nextTab'
+  | 'prevTab'
+  | 'closePane'
+  | 'splitRight'
+  | 'splitDown'
+  | 'focusLeft'
+  | 'focusRight'
+  | 'focusUp'
+  | 'focusDown';
 
 // One table per OS; the windows table arrives with the Windows platform work.
 const KEYMAPS: Record<string, Record<string, KeyAction>> = {
@@ -8,7 +19,14 @@ const KEYMAPS: Record<string, Record<string, KeyAction>> = {
     'shift+insert': 'paste',
     'ctrl+pagedown': 'nextTab',
     'ctrl+pageup': 'prevTab',
-    'ctrl+shift+w': 'closeTab',
+    'ctrl+shift+w': 'closePane',
+    // Same as Terminator.
+    'ctrl+shift+e': 'splitRight',
+    'ctrl+shift+o': 'splitDown',
+    'alt+arrowleft': 'focusLeft',
+    'alt+arrowright': 'focusRight',
+    'alt+arrowup': 'focusUp',
+    'alt+arrowdown': 'focusDown',
   },
 };
 

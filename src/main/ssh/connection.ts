@@ -2,12 +2,13 @@ import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 import type { Duplex } from 'node:stream';
-import { Client, utils, type AnyAuthMethod, type AuthenticationType, type ClientChannel, type Prompt } from 'ssh2';
+import { Client, utils, type AnyAuthMethod, type AuthenticationType, type ClientChannel, type Prompt, type SFTPWrapper } from 'ssh2';
 import type { AuthAnswer, AuthPrompt, ConnStatus, HostKeyAnswer, HostKeyPrompt } from '../../shared/ipc';
 import type { SecretKind, SshSession } from '../../shared/session';
 import { expandHome } from '../paths';
 import { fingerprint, keyType, type KnownHosts } from '../store/known-hosts';
 import type { SecretStore } from '../store/secrets';
+import { ShellHook, hookScript } from './shell-hook';
 
 export interface ConnectionDeps {
   findSession(id: string): SshSession | undefined;
@@ -21,16 +22,21 @@ export interface ConnectionDeps {
 export interface ShellEvents {
   data(d: string): void;
   status(s: ConnStatus, error?: string): void;
+  hook(result: { installed: boolean; pid?: number }): void;
 }
 
 const TCP_TIMEOUT_MS = 15_000;
 const MAX_JUMPS = 5;
 const MAX_PASSWORD_TRIES = 3;
+const EXEC_TIMEOUT_MS = 5_000;
 
 /** One interactive shell = one pane. Owns the target client plus any jump-host clients. */
 export class SshShell {
   private clients: Client[] = [];
+  private target?: Client;
   private stream?: ClientChannel;
+  private hook?: ShellHook;
+  private sftpChannel?: Promise<SFTPWrapper>;
   private closed = false;
   private lastError?: string;
 
@@ -40,7 +46,9 @@ export class SshShell {
     this.events.status('connecting');
     try {
       const session = this.session(sessionId);
-      const client = await this.connectChain(session, 0);
+      const client = (this.target = await this.connectChain(session, 0));
+      // Ask for the login shell in parallel with opening it; the hook needs it ~300 ms later.
+      const shellPath = this.exec('echo "$SHELL"').catch(() => '');
       const stream = await new Promise<ClientChannel>((resolve, reject) =>
         client.shell({ term: 'xterm-256color', cols, rows }, (err, s) => (err ? reject(err) : resolve(s))),
       );
@@ -48,14 +56,18 @@ export class SshShell {
       this.stream = stream;
       stream.setEncoding('utf8');
       stream.stderr.setEncoding('utf8');
-      stream.on('data', (d: string) => this.events.data(d));
+      const hook = (this.hook = new ShellHook(
+        shellPath.then((sh) => hookScript(sh, session.initialDir)),
+        (s) => stream.write(s),
+        (d) => this.events.data(d),
+        (r) => this.events.hook(r),
+      ));
+      stream.on('data', (d: string) => hook.data(d));
       stream.stderr.on('data', (d: string) => this.events.data(d));
       stream.on('close', () => {
         if (!this.closed) this.events.status(this.lastError ? 'error' : 'closed', this.lastError);
         this.close();
       });
-      // ponytail: visible `cd`; phase 2 folds it into the silent shell hook.
-      if (session.initialDir) stream.write(`cd -- ${shQuote(session.initialDir)}\n`);
       this.events.status('connected');
     } catch (e) {
       const wasClosed = this.closed;
@@ -65,7 +77,56 @@ export class SshShell {
   }
 
   write(data: string): void {
+    this.hook?.userInput();
     this.stream?.write(data);
+  }
+
+  retryHook(): void {
+    this.hook?.retry();
+  }
+
+  /** Shared SFTP channel for listings and small operations. */
+  sftp(): Promise<SFTPWrapper> {
+    this.sftpChannel ??= this.openSftp().then((s) => {
+      s.on('close', () => (this.sftpChannel = undefined));
+      return s;
+    });
+    this.sftpChannel.catch(() => (this.sftpChannel = undefined));
+    return this.sftpChannel;
+  }
+
+  /** A dedicated SFTP channel; transfers use one each so cancelling = closing it. */
+  openSftp(): Promise<SFTPWrapper> {
+    const c = this.target;
+    if (!c) return Promise.reject(new Error('Not connected'));
+    return new Promise((resolve, reject) => c.sftp((err, s) => (err ? reject(err) : resolve(s))));
+  }
+
+  /** The shell's cwd via /proc, for shells without the OSC 7 hook. Null when unknown. */
+  async cwd(): Promise<string | null> {
+    if (!this.hook?.pid) return null;
+    const out = await this.exec(`readlink /proc/${this.hook.pid}/cwd`).catch(() => '');
+    return out.startsWith('/') ? out.trim() : null;
+  }
+
+  /** Runs a command on a separate channel and returns its stdout. */
+  private exec(cmd: string): Promise<string> {
+    const c = this.target;
+    if (!c) return Promise.reject(new Error('Not connected'));
+    return new Promise((resolve, reject) => {
+      // Some devices (routers, appliances) never answer exec requests.
+      const timer = setTimeout(() => reject(new Error('exec timed out')), EXEC_TIMEOUT_MS);
+      c.exec(cmd, (err, ch) => {
+        if (err) return clearTimeout(timer), reject(err);
+        let out = '';
+        ch.on('data', (d: Buffer) => (out += d.toString('utf8')));
+        ch.stderr.resume();
+        ch.on('close', () => {
+          clearTimeout(timer);
+          resolve(out);
+        });
+      });
+    });
   }
 
   resize(cols: number, rows: number): void {
@@ -74,9 +135,11 @@ export class SshShell {
 
   close(): void {
     this.closed = true;
+    this.hook?.dispose();
     this.stream?.close();
     for (const c of this.clients) c.end();
     this.clients = [];
+    this.target = undefined;
   }
 
   private session(id: string): SshSession {
@@ -267,5 +330,4 @@ function tcpConnect(host: string, port: number): Promise<net.Socket> {
   });
 }
 
-export const shQuote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));

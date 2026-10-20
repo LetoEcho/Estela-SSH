@@ -1,0 +1,23 @@
+:host { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.toolbar { display: flex; gap: 2px; padding: 6px 6px 0; }
+.toolbar .on { background: var(--bg-3); border-radius: 4px; }
+.path { margin: 6px; font-family: monospace; font-size: 12px; }
+.hint { margin: 0 6px 6px; padding: 6px; border-radius: 4px; background: color-mix(in srgb, var(--warn) 20%, transparent); }
+.list { flex: 1; overflow: auto; min-height: 0; border-top: 1px solid var(--border); }
+.list.dropping { outline: 2px dashed var(--accent); outline-offset: -4px; }
+.row { display: flex; gap: 6px; align-items: center; padding: 2px 8px; white-space: nowrap; user-select: none; }
+.row:hover { background: var(--bg-3); }
+.row.sel { background: color-mix(in srgb, var(--accent) 35%, transparent); }
+.ico { width: 18px; text-align: center; flex: none; }
+.name { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.size { color: var(--fg-dim); font-size: 11px; }
+.mode { color: var(--fg-dim); font-family: monospace; font-size: 11px; }
+.empty, .error { padding: 12px; color: var(--fg-dim); }
+.error { color: var(--danger); }
+.transfers { border-top: 1px solid var(--border); max-height: 35%; overflow: auto; flex: none; }
+.thead { display: flex; justify-content: space-between; align-items: center; padding: 4px 8px; color: var(--fg-dim); }
+.transfer { display: flex; gap: 6px; align-items: center; padding: 2px 8px; }
+.transfer progress { width: 80px; flex: none; }
+.transfer.error .state { color: var(--danger); }
+.transfer.done .state { color: var(--ok); }
+.state { color: var(--fg-dim); font-size: 11px; }

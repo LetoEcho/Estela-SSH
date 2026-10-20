@@ -13,7 +13,7 @@ import { TabsService, type Tab } from './tabs.service';
         <div class="tab" cdkDrag cdkDragLockAxis="x" [class.active]="tab.id === tabs.activeId()"
              [style.border-top-color]="tab.color()" (mousedown)="tabs.activeId.set(tab.id)"
              (auxclick)="$event.button === 1 && tabs.close(tab)" (contextmenu)="openMenu($event, tab)">
-          <span class="dot" [class]="tab.pane.status()" [title]="tab.pane.status()"></span>
+          <span class="dot" [class]="tab.activePane().status()" [title]="tab.activePane().status()"></span>
           <app-icon [icon]="tab.icon" />
           @if (renaming() === tab) {
             <input #r [value]="tab.title()" (keydown.enter)="rename(tab, r.value)" (keydown.escape)="renaming.set(null)"
@@ -62,8 +62,13 @@ export class TabBar {
       items: [
         { label: 'Renombrar', action: () => this.renaming.set(tab) },
         { label: 'Duplicar sesión', action: () => this.tabs.duplicate(tab) },
-        { label: 'Reconectar', action: () => this.tabs.reconnect(tab.pane) },
-        { label: 'Cerrar', action: () => this.tabs.close(tab), danger: true },
+        { label: 'Dividir a la derecha (Ctrl+Shift+E)', action: () => (this.tabs.activeId.set(tab.id), this.tabs.split('row')) },
+        { label: 'Dividir abajo (Ctrl+Shift+O)', action: () => (this.tabs.activeId.set(tab.id), this.tabs.split('column')) },
+        { label: 'Reconectar panel activo', action: () => this.tabs.reconnect(tab.activePane()) },
+        ...(tab.panes().length > 1
+          ? [{ label: 'Cerrar panel activo (Ctrl+Shift+W)', action: () => this.tabs.closePane(tab, tab.activePane()) }]
+          : []),
+        { label: 'Cerrar pestaña', action: () => this.tabs.close(tab), danger: true },
       ],
       pickColor: (c) => tab.color.set(c),
     });
