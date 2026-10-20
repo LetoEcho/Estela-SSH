@@ -3,7 +3,8 @@ import { spawn } from 'node:child_process';
 
 const URL = 'http://localhost:4200';
 const run = (cmd, args, env = {}) =>
-  spawn(cmd, args, { stdio: 'inherit', env: { ...process.env, ...env } });
+  // npx is npx.cmd on Windows, which only starts through a shell.
+  spawn(cmd, args, { stdio: 'inherit', env: { ...process.env, ...env }, shell: process.platform === 'win32' });
 
 const children = [run('npx', ['ng', 'serve', '--port', '4200']), run('node', ['esbuild.mjs', '--watch'])];
 const stop = () => children.forEach((c) => c.kill());

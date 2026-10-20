@@ -1,7 +1,7 @@
 # Estela SSH
 
 SSH, SFTP and RDP desktop client in the spirit of MobaXterm, for personal use. Electron + Angular + ssh2 + xterm.js.
-Linux and Windows (Windows layer written on Linux; verify on a real Windows machine).
+Linux and Windows (Windows layer written on Linux; verify on a real Windows machine — see docs/WINDOWS.md).
 
 Talk to the user in Spanish. Code, comments and commit messages in English. UI text in Spanish.
 
