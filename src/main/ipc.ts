@@ -2,13 +2,14 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { BrowserWindow, dialog, ipcMain, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron';
 import type { EventApi, InvokeApi, SendApi } from '../shared/ipc';
 import { MAX_ICON_BYTES, type RdpSession, type SecretKind, type SshSession } from '../shared/session';
 import { EditorManager } from './editor';
 import { LocalPty } from './local/pty';
 import { collapseHome } from './paths';
 import { RdpLauncher } from './rdp/rdp';
+import { SessionLog } from './session-log';
 import { platform } from './platform';
 import { Prompts } from './prompts';
 import { registerSftpIpc } from './sftp-ipc';
@@ -38,7 +39,7 @@ export interface IpcOptions {
 }
 
 /** Channels editor windows may use; everything else is reserved to the main window. */
-const EDITOR_CHANNELS = new Set<string>(['editor:load', 'editor:save']);
+const EDITOR_CHANNELS = new Set<string>(['editor:load', 'editor:save', 'settings:get']);
 
 // The renderer is a trust boundary: every argument is checked here before use.
 const str = (x: unknown): string => {
@@ -85,6 +86,7 @@ export function registerIpc(win: BrowserWindow, { sessions, secrets, knownHosts,
     agent: () => platform.sshAgent(),
     askHostKey: prompts.hostKey.bind(prompts),
     askAuth: prompts.auth.bind(prompts),
+    keepaliveSec: () => settings.get().keepaliveSec,
   };
 
   handle('sessions:get', () => sessions.get());
@@ -169,10 +171,20 @@ export function registerIpc(win: BrowserWindow, { sessions, secrets, knownHosts,
     tempDir: opts.userData,
   });
 
+  const logs = new Map<string, SessionLog>();
+  const defaultLogDir = () => path.join(app.getPath('documents'), 'Estela SSH logs');
+  const closeLog = (connId: string) => {
+    logs.get(connId)?.close();
+    logs.delete(connId);
+  };
   const shellEvents = (connId: string): ShellEvents => ({
-    data: (data) => emit('conn:data', { connId, data }),
+    data: (data) => {
+      logs.get(connId)?.write(data);
+      emit('conn:data', { connId, data });
+    },
     status: (status, error) => {
       if (status === 'closed' || status === 'error') {
+        closeLog(connId);
         shells.delete(connId);
         sftp.connectionClosed(connId);
         editor.connectionClosed(connId);
@@ -187,6 +199,15 @@ export function registerIpc(win: BrowserWindow, { sessions, secrets, knownHosts,
     const shell = new SshShell(connDeps, shellEvents(connId));
     shells.set(connId, shell);
     const [id, c, r] = [str(sessionId), int(cols), int(rows)];
+    const session = sessions.find(id);
+    if (session?.type === 'ssh' && session.log) {
+      const dir = settings.get().logDir || defaultLogDir();
+      try {
+        logs.set(connId, new SessionLog(dir, session.name));
+      } catch (e) {
+        emit('app:notice', { message: `No se pudo crear el log: ${e instanceof Error ? e.message : e}` });
+      }
+    }
     // Deferred so the renderer has the connId before the first status event arrives.
     setImmediate(() => void shell.open(id, c, r));
     return connId;
@@ -278,12 +299,14 @@ export function registerIpc(win: BrowserWindow, { sessions, secrets, knownHosts,
   // --- settings & editor ---
   handle('settings:get', () => settings.get());
   handle('settings:set', (s) => settings.set(s));
+  handle('app:info', () => ({ version: app.getVersion(), defaultLogDir: defaultLogDir() }));
   handle('editor:open', (connId, remotePath) => editor.open(str(connId), str(remotePath)));
   handle('editor:load', (id) => editor.load(str(id)));
   handle('editor:save', (id, content) => editor.save(str(id), str(content)));
   on('conn:write', (id, data) => shells.get(str(id))?.write(str(data)));
   on('conn:resize', (id, cols, rows) => shells.get(str(id))?.resize(int(cols), int(rows)));
   on('conn:close', (id) => {
+    closeLog(str(id));
     shells.get(str(id))?.close();
     shells.delete(str(id));
     sftp.connectionClosed(str(id));
@@ -295,6 +318,7 @@ export function registerIpc(win: BrowserWindow, { sessions, secrets, knownHosts,
   const reset = () => {
     prompts.cancelAll();
     for (const [id, s] of shells) {
+      closeLog(id);
       s.close();
       sftp.connectionClosed(id);
       editor.connectionClosed(id);

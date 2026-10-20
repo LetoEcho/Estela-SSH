@@ -71,6 +71,9 @@
 
       <label for="dir">Directorio inicial</label>
       <input id="dir" formControlName="initialDir" placeholder="/var/log" />
+
+      <span></span>
+      <label title="Se guarda en la carpeta de logs de los ajustes"><input type="checkbox" formControlName="log" /> Guardar log de la sesión</label>
     } @else {
       <label>Pantalla</label>
       <div class="row">

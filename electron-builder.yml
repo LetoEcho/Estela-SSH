@@ -8,11 +8,22 @@ files:
   - dist/**/*
   - '!dist/**/*.map'
   - package.json
+  - build/icon.png
   # node-pty ships prebuilds for every OS; macOS is not a target.
   - '!node_modules/node-pty/prebuilds/darwin-*'
 linux:
   target: [AppImage, deb, rpm]
   category: Network
   executableName: estela-ssh
-  synopsis: SSH client with sessions, tabs and SFTP
+  synopsis: SSH and RDP client with sessions, tabs, split panes and SFTP
+  description: Personal SSH, SFTP and RDP client with sessions, tabs, split panes and tunnels.
   maintainer: LetoEcho <172483139+LetoEcho@users.noreply.github.com>
+  desktop:
+    entry:
+      Keywords: ssh;sftp;rdp;terminal;remote;
+      StartupWMClass: estela-ssh
+deb:
+  # FreeRDP is only needed for RDP sessions; recommend it instead of requiring it.
+  recommends: [freerdp3-x11]
+rpm:
+  fpm: ['--rpm-tag', 'Recommends: freerdp']

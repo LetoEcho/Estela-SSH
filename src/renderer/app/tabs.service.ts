@@ -1,10 +1,16 @@
 import { Injectable, computed, inject, signal, type WritableSignal } from '@angular/core';
 import { moveItemInArray } from '@angular/cdk/drag-drop';
+import type { SearchAddon } from '@xterm/addon-search';
 import type { Terminal } from '@xterm/xterm';
 import type { ConnStatus, LocalShell, RdpStatus } from '../../shared/ipc';
 import type { RdpSession, Session, SshSession } from '../../shared/session';
 import { estela } from './estela';
 import { SessionsService } from './sessions.service';
+import { SettingsService } from './settings.service';
+
+const RECONNECT_DELAYS_S = [2, 4, 8, 16, 30];
+/** Errors where retrying cannot help (or would hammer a server with a bad password). */
+const NO_RETRY = /authenticat|host key|cancel|not found|no ssh agent|passphrase/i;
 
 /** What a pane connects to. */
 export type PaneTarget = { kind: 'ssh'; sessionId: string } | { kind: 'local'; shell: LocalShell };
@@ -25,6 +31,10 @@ export class Pane {
   rows = 24;
   /** Owned by the pane (not the view) so splitting/moving the view keeps the scrollback. */
   term?: Terminal;
+  search?: SearchAddon;
+  /** Automatic reconnection attempts in a row (reset when connected). */
+  reconnectAttempts = 0;
+  reconnectTimer?: ReturnType<typeof setTimeout>;
   /** The DOM host of its terminal view, for directional focus. */
   el?: HTMLElement;
 
@@ -119,6 +129,7 @@ const dim = (s: string) => `\r\n\x1b[90m${s}\x1b[0m\r\n`;
 @Injectable({ providedIn: 'root' })
 export class TabsService {
   private readonly sessions = inject(SessionsService);
+  private readonly settings = inject(SettingsService);
   private readonly byConn = new Map<string, Pane>();
 
   private readonly byRdp = new Map<string, RdpTab>();
@@ -142,8 +153,14 @@ export class TabsService {
       const pane = this.byConn.get(connId);
       if (!pane) return;
       pane.status.set(status);
-      if (status === 'error') pane.term?.write(`\r\n\x1b[31mError: ${error}\x1b[0m` + dim('Pulsa R para reconectar'));
+      if (status === 'connected') pane.reconnectAttempts = 0;
       if (status === 'closed') pane.term?.write(dim('Conexión cerrada. Pulsa R para reconectar'));
+      if (status === 'error') {
+        pane.term?.write(`\r\n\x1b[31mError: ${error}\x1b[0m`);
+        const auto = pane.target.kind === 'ssh' && this.settings.value().autoReconnect && !NO_RETRY.test(error ?? '');
+        if (auto) this.scheduleReconnect(pane);
+        else pane.term?.write(dim('Pulsa R para reconectar'));
+      }
       if (status === 'closed' || status === 'error') this.byConn.delete(connId);
     });
     estela.on('conn:hook', ({ connId, installed, pid }) => this.byConn.get(connId)?.hook.set({ installed, pid }));
@@ -241,8 +258,24 @@ export class TabsService {
   }
 
   reconnect(pane: Pane): void {
+    clearTimeout(pane.reconnectTimer);
     pane.term?.write(dim('--- reconectando ---'));
     void this.connect(pane);
+  }
+
+  /** Network drop: retry with growing delays; R still reconnects at once. */
+  private scheduleReconnect(pane: Pane): void {
+    const n = pane.reconnectAttempts;
+    if (n >= RECONNECT_DELAYS_S.length) {
+      pane.term?.write(dim('Reconexión automática agotada. Pulsa R para reintentar'));
+      return;
+    }
+    const delay = RECONNECT_DELAYS_S[n];
+    pane.reconnectAttempts++;
+    pane.term?.write(dim(`Reconectando en ${delay} s (intento ${n + 1}/${RECONNECT_DELAYS_S.length})… pulsa R para hacerlo ya`));
+    pane.reconnectTimer = setTimeout(() => {
+      if (pane.term && pane.status() === 'error') this.reconnect(pane);
+    }, delay * 1000);
   }
 
   write(pane: Pane, data: string): void {
@@ -291,6 +324,7 @@ export class TabsService {
   }
 
   private dispose(pane: Pane): void {
+    clearTimeout(pane.reconnectTimer);
     this.disconnect(pane);
     pane.term?.dispose();
     pane.term = undefined;

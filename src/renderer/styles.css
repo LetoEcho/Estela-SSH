@@ -9,7 +9,18 @@
   --ok: #50b86c;
   --warn: #e5a50a;
   --border: #3f4147;
+  --term-bg: #1e1f22;
   color-scheme: dark;
+}
+:root[data-theme='light'] {
+  --bg: #f6f7f9;
+  --bg-2: #eceef1;
+  --bg-3: #dde1e6;
+  --fg: #1f2328;
+  --fg-dim: #59636e;
+  --border: #d0d7de;
+  --term-bg: #ffffff;
+  color-scheme: light;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font: 13px system-ui, sans-serif; overflow: hidden; }

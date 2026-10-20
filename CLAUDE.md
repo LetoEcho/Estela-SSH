@@ -16,6 +16,7 @@ Talk to the user in Spanish. Code, comments and commit messages in English. UI t
 | Type check everything | `npm run typecheck` |
 | Linux packages (AppImage, deb, rpm → `release/`) | `npm run dist:linux` (rpm needs `rpmbuild`: `sudo apt install rpm`) |
 | Isolated data dir (tests, experiments) | `ESTELA_USER_DATA=/some/dir npm start` |
+| Regenerate the app icon from build/icon.svg | `npx electron scripts/make-icon.cjs` (writes build/icon.png, 512×512) |
 | Local test SSH server (real bash + OpenSSH sftp-server, password `secret`) | `npm run test-server` (port 2222; `PORT=…`, `TEST_SHELL=/bin/sh` to try other shells) |
 
 Windows packaging (NSIS + portable) arrives with the Windows phase.
@@ -47,7 +48,8 @@ test/          integration tests: in-process ssh2 servers; real-server.ts wraps 
 - **IPC contract** lives in `src/shared/ipc.ts`: `InvokeApi` (request/response), `SendApi` (hot path, e.g. keystrokes),
   `EventApi` (main → renderer). Main-process questions to the user (host keys, passwords) go through `Prompts`.
 - **One ssh2 `Client` per pane** (as MobaXterm). Jump hosts are references to other sessions, chained via `forwardOut`.
-- **ssh2 `readyTimeout` is 0** because it counts the time the user spends answering prompts; TCP connect has its own 15 s timeout.
+- **ssh2 `readyTimeout` is 0** because it counts the time the user spends answering prompts. Instead: TCP connect
+  timeout 15 s, and an SSH handshake timeout of 20 s that stops when the server presents its host key.
 - **Auth flow** (`AuthFlow` in connection.ts): session method first, then password / keyboard-interactive fallback,
   max 3 password tries. Secrets the user asks to remember are saved only after auth succeeds.
 - **Secrets** are encrypted with Electron `safeStorage` in `secrets.json`, separate from `sessions.json`, so exports
@@ -93,6 +95,15 @@ test/          integration tests: in-process ssh2 servers; real-server.ts wraps 
 - **OpenSSH import**: `~/.ssh/config` with first-match-wins semantics, `Host *` defaults, ProxyJump chains (hops become
   sessions), duplicates skipped; Include/Match/ProxyCommand ignored. known_hosts lines (incl. hashed `|1|`) are appended
   to ours; @cert-authority/@revoked skipped.
+- **Settings** (`settings.json`, validated/clamped in `src/shared/settings.ts`): theme (system/dark/light), font,
+  size, scrollback, copy-on-select, right-click paste (else a small context menu), SSH keepalive, auto-reconnect,
+  log dir, editor. The renderer's `SettingsService` applies them live (theme via `data-theme` on <html> + CSS vars,
+  xterm options on open terminals, Monaco theme in editor windows).
+- **Auto-reconnect** (renderer, TabsService): only for SSH panes ending in `error` that is not auth/host-key/cancel;
+  delays 2/4/8/16/30 s, then gives up; R reconnects at once. A normal `exit` (status `closed`) never reconnects.
+- **Session logs**: per SSH session (`log: true`), written by main to `<logDir>/<name>-<UTC stamp>.log` with escape
+  sequences stripped (`SessionLog` holds back escapes split across chunks).
+- **Window state**: main window bounds/maximized saved in `window.json`, ignored if off-screen.
 - **Paths**: remote paths always `path.posix`; local paths use `path` (see `src/main/paths.ts`).
 - **Keyboard shortcuts**: one table per OS in `src/renderer/app/keymap.ts` (no scattered OS checks in the UI).
 - **Packaging**: only `ssh2` is a runtime dependency; everything for the renderer is a devDependency (bundled by Angular).
@@ -112,7 +123,7 @@ test/          integration tests: in-process ssh2 servers; real-server.ts wraps 
 | RDP client | xfreerdp3 / xfreerdp / sdl-freerdp3 | mstsc + .rdp + CredWrite via stdin |
 | Raise RDP window | xdotool or wmctrl (X11; not Wayland) | AppActivate by pid |
 | External editor | spawn command + file, detached | same |
-| Packages | AppImage, deb, rpm | NSIS, portable |
+| Packages | AppImage, deb (recommends freerdp3-x11), rpm (recommends freerdp; needs `rpmbuild`) | NSIS, portable |
 
 ## Testing notes
 
@@ -132,6 +143,7 @@ test/          integration tests: in-process ssh2 servers; real-server.ts wraps 
 2. ✅ Split panes + SFTP panel following the terminal's cwd (OSC 7 hook, /proc fallback), transfers, chmod, D&D.
 3. ✅ Multi-exec, tunnels (L/R/D + auto start), local terminal, remote editing (Monaco / external), RDP phase A
    (FreeRDP, certificate pinning, via SSH), import ~/.ssh/config & known_hosts, settings dialog.
-4. Polish (keepalive/reconnect settings, themes, fonts, logging) and packaging.
+4. ✅ Settings (theme, fonts, scrollback, copy/paste behaviour, keepalive, auto-reconnect), terminal search
+   (Ctrl+Shift+F), session logs, handshake timeout, window state, app icon, Linux packaging metadata.
 5. Optional: X11 forwarding, embedded RDP.
 Then: Windows platform layer + Windows CI/packages.

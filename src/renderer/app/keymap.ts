@@ -9,7 +9,8 @@ export type KeyAction =
   | 'focusLeft'
   | 'focusRight'
   | 'focusUp'
-  | 'focusDown';
+  | 'focusDown'
+  | 'search';
 
 // One table per OS; the windows table arrives with the Windows platform work.
 const KEYMAPS: Record<string, Record<string, KeyAction>> = {
@@ -27,6 +28,7 @@ const KEYMAPS: Record<string, Record<string, KeyAction>> = {
     'alt+arrowright': 'focusRight',
     'alt+arrowup': 'focusUp',
     'alt+arrowdown': 'focusDown',
+    'ctrl+shift+f': 'search',
   },
 };
 

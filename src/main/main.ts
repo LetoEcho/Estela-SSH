@@ -9,6 +9,7 @@ import { SecretStore } from './store/secrets';
 import { RdpCerts } from './store/rdp-certs';
 import { SessionStore } from './store/sessions';
 import { SettingsStore } from './store/settings';
+import { loadWindowState, trackWindowState } from './window-state';
 
 const DEV_URL = process.env['ESTELA_DEV_URL'];
 const RENDERER_DIR = path.join(__dirname, '../renderer/browser');
@@ -54,7 +55,14 @@ app.whenReady().then(() => {
     rdpCerts: new RdpCerts(path.join(dir, 'rdp-certs.json')),
   };
 
-  const win = createWindow(1280, 800);
+  const stateFile = path.join(dir, 'window.json');
+  const state = loadWindowState(stateFile);
+  const win = createWindow(state?.bounds.width ?? 1280, state?.bounds.height ?? 800);
+  if (state) {
+    win.setBounds(state.bounds);
+    if (state.maximized) win.maximize();
+  }
+  trackWindowState(win, stateFile);
   const ipc = registerIpc(win, stores, {
     userData: dir,
     openEditorWindow: (editId) => {
@@ -83,6 +91,7 @@ function createWindow(width: number, height: number, hash = ''): BrowserWindow {
     width,
     height,
     title: 'Estela SSH',
+    icon: path.join(app.getAppPath(), 'build/icon.png'),
     backgroundColor: '#1e1e1e',
     webPreferences: {
       preload: path.join(__dirname, '../preload/preload.js'),

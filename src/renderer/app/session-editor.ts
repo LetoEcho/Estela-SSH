@@ -50,6 +50,7 @@ export class SessionEditor implements OnInit {
     keyPath: [''],
     jumpSessionId: [''],
     initialDir: [''],
+    log: [false],
     folderId: [''],
     color: [COLORS[0]],
     icon: [DEFAULT_SESSION_ICON],
@@ -97,7 +98,7 @@ export class SessionEditor implements OnInit {
   ngOnInit(): void {
     const { session: s, folderId, type } = this.request();
     if (s?.type === 'ssh') {
-      this.form.patchValue({ ...s, keyPath: s.keyPath ?? '', jumpSessionId: s.jumpSessionId ?? '', initialDir: s.initialDir ?? '', folderId: s.folderId ?? '' });
+      this.form.patchValue({ ...s, keyPath: s.keyPath ?? '', jumpSessionId: s.jumpSessionId ?? '', initialDir: s.initialDir ?? '', folderId: s.folderId ?? '', log: !!s.log });
       this.tunnels.set(structuredClone(s.tunnels ?? []));
     } else if (s?.type === 'rdp') {
       const [w, h] = s.screen === 'fullscreen' ? [1600, 900] : s.screen.split('x').map(Number);
@@ -202,6 +203,7 @@ export class SessionEditor implements OnInit {
             jumpSessionId: v.jumpSessionId || undefined,
             initialDir: v.initialDir.trim() || undefined,
             tunnels: this.tunnels(),
+            log: v.log || undefined,
           } satisfies SshSession)
         : ({
             ...base,

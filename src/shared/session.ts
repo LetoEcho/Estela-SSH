@@ -36,6 +36,8 @@ export interface SshSession {
   jumpSessionId?: string;
   initialDir?: string;
   tunnels?: Tunnel[];
+  /** Save the session output to a log file. */
+  log?: boolean;
 }
 
 export interface RdpSession {
@@ -197,6 +199,7 @@ export function validateSession(x: unknown): Session {
     initialDir: str(o, 'initialDir', true),
   };
   if (Array.isArray(o['tunnels']) && o['tunnels'].length) s.tunnels = o['tunnels'].map(validateTunnel);
+  if (o['log'] === true) s.log = true;
   if (s.auth === 'key' && !s.keyPath) fail('keyPath is required for key auth');
   if (s.jumpSessionId === s.id) fail('a session cannot be its own jump host');
   return s;

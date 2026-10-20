@@ -1,5 +1,6 @@
-import { Component, ElementRef, afterNextRender, signal, viewChild } from '@angular/core';
+import { Component, ElementRef, afterNextRender, effect, inject, signal, viewChild } from '@angular/core';
 import { cleanError, estela } from './estela';
+import { SettingsService } from './settings.service';
 
 type Monaco = typeof import('monaco-editor');
 
@@ -34,11 +35,19 @@ export class EditorApp {
   protected readonly saving = signal(false);
   protected readonly status = signal('Cargando…');
   protected readonly error = signal('');
+  private readonly settings = inject(SettingsService);
   private editor?: import('monaco-editor').editor.IStandaloneCodeEditor;
+  private monaco?: Monaco;
   private savedVersion = 0;
 
   constructor() {
     afterNextRender(() => void this.init());
+    effect(() => {
+      const theme = this.settings.theme() === 'dark' ? 'vs-dark' : 'vs';
+      const fontSize = this.settings.value().fontSize;
+      this.monaco?.editor.setTheme(theme);
+      this.editor?.updateOptions({ fontSize });
+    });
   }
 
   private async init(): Promise<void> {
@@ -49,15 +58,16 @@ export class EditorApp {
     document.head.appendChild(css);
     try {
       const [file, monaco] = await Promise.all([estela.invoke('editor:load', this.id), import('monaco-editor')]);
+      this.monaco = monaco;
       this.name.set(file.name);
       this.path.set(file.path);
       document.title = `${file.name} — Estela SSH`;
       const editor = (this.editor = monaco.editor.create(this.host().nativeElement, {
         value: file.content,
         language: languageFor(monaco, file.name),
-        theme: 'vs-dark',
+        theme: this.settings.theme() === 'dark' ? 'vs-dark' : 'vs',
         automaticLayout: true,
-        fontSize: 14,
+        fontSize: this.settings.value().fontSize,
         minimap: { enabled: false },
       }));
       this.savedVersion = editor.getModel()!.getAlternativeVersionId();

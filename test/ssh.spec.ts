@@ -173,3 +173,25 @@ describe('SshShell', () => {
     expect(h.last()?.e).toMatch(/ECONNREFUSED/);
   });
 });
+
+describe('SshShell handshake timeout', () => {
+  it('gives up on servers that accept TCP but never speak SSH', async () => {
+    let connected!: () => void;
+    const accepted = new Promise<void>((r) => (connected = r));
+    const silent = net.createServer(() => connected());
+    const port = await new Promise<number>((r) => silent.listen(0, '127.0.0.1', () => r((silent.address() as net.AddressInfo).port)));
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const h = harness([session(port)]);
+      const done = h.shell.open('s1', 80, 24);
+      await accepted;
+      await new Promise((r) => setImmediate(r));
+      await vi.advanceTimersByTimeAsync(21_000);
+      await done;
+      expect(h.last()).toMatchObject({ s: 'error', e: expect.stringMatching(/No SSH handshake/) });
+    } finally {
+      vi.useRealTimers();
+      silent.close();
+    }
+  });
+});

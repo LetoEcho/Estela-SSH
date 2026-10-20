@@ -17,6 +17,8 @@ export interface ConnectionDeps {
   agent(): string | undefined;
   askHostKey(p: HostKeyPrompt): Promise<HostKeyAnswer>;
   askAuth(p: AuthPrompt): Promise<AuthAnswer>;
+  /** SSH keepalive interval in seconds (0 = off). Default 30. */
+  keepaliveSec?(): number;
 }
 
 export interface ShellEvents {
@@ -29,6 +31,8 @@ const TCP_TIMEOUT_MS = 15_000;
 const MAX_JUMPS = 5;
 const MAX_PASSWORD_TRIES = 3;
 const EXEC_TIMEOUT_MS = 5_000;
+/** Until the server shows its host key; user prompts come later and are not counted. */
+const HANDSHAKE_TIMEOUT_MS = 20_000;
 
 /**
  * An authenticated SSH connection to a session, through its chain of jump hosts.
@@ -132,6 +136,12 @@ export class SshConnection {
     this.clients.push(client);
     const auth = new AuthFlow(s, this.deps);
     await new Promise<void>((resolve, reject) => {
+      const handshake = setTimeout(() => {
+        this.lastError = `No SSH handshake from ${s.host} after ${HANDSHAKE_TIMEOUT_MS / 1000} s`;
+        reject(new Error(this.lastError));
+        sock.destroy();
+      }, HANDSHAKE_TIMEOUT_MS);
+      client.once('close', () => clearTimeout(handshake));
       client.once('ready', resolve);
       client.once('close', () => reject(new Error(`Connection to ${s.host} closed`)));
       // Permanent listener: an EventEmitter 'error' without listeners would crash the main process.
@@ -143,11 +153,12 @@ export class SshConnection {
         sock,
         username: s.username,
         // Disabled: ssh2 counts it until auth succeeds, which includes the time the user spends in our prompts.
-        // ponytail: a server that accepts TCP but never handshakes hangs until the tab is closed.
+        // HANDSHAKE_TIMEOUT_MS covers servers that accept TCP but never speak SSH.
         readyTimeout: 0,
-        keepaliveInterval: 30_000,
+        keepaliveInterval: (this.deps.keepaliveSec?.() ?? 30) * 1000,
         keepaliveCountMax: 3,
         hostVerifier: (key: Buffer, verify: (ok: boolean) => void) => {
+          clearTimeout(handshake);
           this.verifyHost(s, key).then(verify, () => verify(false));
         },
         authHandler: (methodsLeft, _partial, next) => {

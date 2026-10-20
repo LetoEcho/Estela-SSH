@@ -86,6 +86,18 @@ export interface Settings {
   /** 'internal' = Monaco window; otherwise the command line of an external editor, e.g. "code --wait". */
   editor: 'internal' | 'external';
   externalEditor: string;
+  theme: 'system' | 'dark' | 'light';
+  fontFamily: string;
+  fontSize: number;
+  scrollback: number;
+  copyOnSelect: boolean;
+  rightClickPaste: boolean;
+  /** SSH keepalive interval in seconds; 0 disables it. */
+  keepaliveSec: number;
+  /** Reconnect SSH panes that drop because of a network error (not after a normal exit). */
+  autoReconnect: boolean;
+  /** Where session logs go; empty = default (Documents/Estela SSH logs). */
+  logDir: string;
 }
 
 /** ipcRenderer.invoke → ipcMain.handle */
@@ -135,7 +147,9 @@ export interface InvokeApi {
   /** Merges ~/.ssh/known_hosts into ours; returns how many lines were added. */
   'import:knownHosts': () => number;
   'settings:get': () => Settings;
-  'settings:set': (s: Settings) => void;
+  'app:info': () => { version: string; defaultLogDir: string };
+  /** Returns the settings as stored (validated). */
+  'settings:set': (s: Settings) => Settings;
   /** Opens a remote file in the configured editor (internal window or external command). */
   'editor:open': (connId: string, remotePath: string) => void;
   /** For the editor window: the file it was opened for. */
@@ -180,7 +194,7 @@ export const INVOKE_CHANNELS = [
   'dialog:openDir', 'conn:open', 'conn:cwd', 'sftp:home', 'sftp:list', 'sftp:mkdir', 'sftp:rename', 'sftp:delete',
   'sftp:chmod', 'transfer:conflicts', 'transfer:upload', 'transfer:download', 'transfer:cancel', 'local:shells',
   'conn:openLocal', 'tunnel:list', 'tunnel:start', 'tunnel:stop', 'rdp:launch', 'rdp:focus', 'rdp:stop',
-  'import:sshConfig', 'import:knownHosts', 'settings:get', 'settings:set', 'editor:open', 'editor:load', 'editor:save',
+  'import:sshConfig', 'import:knownHosts', 'settings:get', 'settings:set', 'app:info', 'editor:open', 'editor:load', 'editor:save',
 ] as const satisfies readonly (keyof InvokeApi)[];
 export const SEND_CHANNELS = ['conn:write', 'conn:resize', 'conn:close', 'prompt:answer', 'conn:retryHook', 'sftp:dragOut'] as const satisfies readonly (keyof SendApi)[];
 export const EVENT_CHANNELS = [
