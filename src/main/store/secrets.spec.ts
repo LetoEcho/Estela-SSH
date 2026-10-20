@@ -21,7 +21,8 @@ describe('SecretStore', () => {
     st.set('s1', 'password', 'hunter2');
     expect(fs.readFileSync(file, 'utf8')).not.toContain('hunter2');
     expect(new SecretStore(file, cipher, { name: 'x', secure: true }).get('s1', 'password')).toBe('hunter2');
-    expect((fs.statSync(file).mode & 0o777).toString(8)).toBe('600');
+    // Windows has no POSIX modes; the file lives in the user's profile instead.
+    if (process.platform !== 'win32') expect((fs.statSync(file).mode & 0o777).toString(8)).toBe('600');
   });
 
   it('refuses to store without a keyring until accepted', () => {

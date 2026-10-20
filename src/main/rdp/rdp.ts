@@ -1,11 +1,15 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import type { AuthAnswer, AuthPrompt, ChoicePrompt, RdpStatus } from '../../shared/ipc';
 import type { RdpSession } from '../../shared/session';
 import type { Platform } from '../platform/types';
 import type { RdpCerts } from '../store/rdp-certs';
 import type { SecretStore } from '../store/secrets';
 import type { TunnelManager } from '../ssh/tunnels';
-import { freerdpArgs } from './freerdp-args';
+import { freerdpArgs, type FreerdpTarget } from './freerdp-args';
+import { mstscCredTarget, mstscFile } from './mstsc-file';
 
 const LOG_LINES = 40;
 /** A connection alive this long is taken as "the password worked" (FreeRDP gives no explicit signal). */
@@ -53,7 +57,7 @@ export class FreerdpOutput {
 }
 
 export interface RdpDeps {
-  platform: Pick<Platform, 'rdpClient' | 'focusWindow'>;
+  platform: Pick<Platform, 'rdpClient' | 'focusWindow' | 'rdpCredential'>;
   tunnels: Pick<TunnelManager, 'ephemeral'>;
   secrets: Pick<SecretStore, 'get' | 'set' | 'canStore'>;
   certs: Pick<RdpCerts, 'get' | 'set'>;
@@ -62,7 +66,7 @@ export interface RdpDeps {
   emit(s: RdpStatus): void;
 }
 
-/** Launches external FreeRDP windows; one per RDP tab. */
+/** Launches external RDP client windows (FreeRDP or mstsc); one per RDP tab. */
 export class RdpLauncher {
   private procs = new Map<string, ChildProcess>();
   private stopped = new Set<string>();
@@ -90,6 +94,12 @@ export class RdpLauncher {
       if (s.viaSshSessionId) {
         tunnel = await this.deps.tunnels.ephemeral(s.viaSshSessionId, s.host, s.port);
         target = { host: '127.0.0.1', port: tunnel.port };
+      }
+
+      if (client.kind === 'mstsc') {
+        // mstsc shows its own certificate dialogs, and its exit code means nothing.
+        await this.runMstsc(rdpId, client.path, s, target, password, save, emit);
+        return emit('exited');
       }
 
       // The certificate is pinned to the real server, also when going through a tunnel.
@@ -127,7 +137,32 @@ export class RdpLauncher {
     for (const id of this.procs.keys()) this.stop(id);
   }
 
-  /** One FreeRDP run; resolves when it exits. */
+  /** mstsc reads the password from Credential Manager; the entry lives only while mstsc runs. */
+  private async runMstsc(
+    rdpId: string,
+    exe: string,
+    s: RdpSession,
+    target: FreerdpTarget,
+    password: string,
+    save: boolean,
+    emit: (state: RdpStatus['state'], error?: string) => void,
+  ): Promise<void> {
+    const cred = mstscCredTarget(target.host);
+    const user = `${s.domain ? `${s.domain}\\` : ''}${s.username}`;
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'estela-rdp-'));
+    try {
+      // The file name shows in mstsc's title bar.
+      const file = path.join(dir, `${s.name.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')}.rdp`);
+      fs.writeFileSync(file, '\ufeff' + mstscFile(s, target, path.parse(os.homedir()).root), 'utf16le');
+      await this.deps.platform.rdpCredential(cred, user, password);
+      await this.run(rdpId, exe, [file], password, save, s.id, emit, false);
+    } finally {
+      await this.deps.platform.rdpCredential(cred, user, null).catch(() => {});
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  /** One client run; resolves when it exits. FreeRDP gets the password on stdin. */
   private run(
     rdpId: string,
     file: string,
@@ -136,13 +171,14 @@ export class RdpLauncher {
     save: boolean,
     sessionId: string,
     emit: (state: RdpStatus['state'], error?: string) => void,
+    passwordOnStdin = true,
   ): Promise<{ ok: boolean; out: FreerdpOutput }> {
     return new Promise((resolve) => {
       const out = new FreerdpOutput();
       const proc = spawn(file, args, { stdio: ['pipe', 'pipe', 'pipe'] });
       this.procs.set(rdpId, proc);
       // /from-stdin:force reads the password from here before connecting: never on the command line.
-      proc.stdin.write(password + '\n');
+      if (passwordOnStdin) proc.stdin.write(password + '\n');
       proc.stdout.on('data', (d: Buffer) => out.feed(d.toString('utf8')));
       proc.stderr.on('data', (d: Buffer) => out.feed(d.toString('utf8')));
       const saveTimer = save ? setTimeout(() => this.deps.secrets.set(sessionId, 'password', password), SAVE_AFTER_MS) : undefined;

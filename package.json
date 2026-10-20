@@ -8,6 +8,7 @@
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.node.json && tsc -p tsconfig.app.json --noEmit",
     "dist:linux": "npm run build && electron-builder --linux",
+    "dist:win": "npm run build && electron-builder --win --x64",
     "test-server": "esbuild test/real-server.ts --bundle --platform=node --external:ssh2 --log-level=warning --outfile=dist/test-server.js && node dist/test-server.js"
   },
   "private": true,

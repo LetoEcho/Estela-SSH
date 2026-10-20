@@ -4,6 +4,7 @@ import path from 'node:path';
 import { app, nativeImage, type BrowserWindow } from 'electron';
 import type { EventApi, InvokeApi, SendApi, TransferDirection } from '../shared/ipc';
 import type { LocalPty } from './local/pty';
+import { localName } from './paths';
 import { SshShell } from './ssh/connection';
 import { call, exists, list, mkdirp, remove, transferFile, walk } from './ssh/sftp';
 import { TransferQueue, type TransferRunner } from './ssh/transfers';
@@ -99,7 +100,7 @@ export function registerSftpIpc({ win, shells, handle, on, emit, str }: SftpIpcD
       return names.filter((_, i) => found[i]);
     }
     const dir = targetDir ? str(targetDir) : app.getPath('downloads');
-    return names.filter((n) => fs.existsSync(path.join(dir, n)));
+    return names.filter((n) => fs.existsSync(path.join(dir, localName(n))));
   });
 
   handle('transfer:upload', async (id, localPaths, remoteDir) => {
@@ -135,11 +136,11 @@ export function registerSftpIpc({ win, shells, handle, on, emit, str }: SftpIpcD
       const entry = entries.find((e) => e.path === remote);
       if (!entry) throw new Error(`No existe: ${remote}`);
       if (!entry.isDir) {
-        queue.add({ connId, direction: 'down', name: entry.name, source: remote, target: path.join(dir, entry.name), size: entry.size });
+        queue.add({ connId, direction: 'down', name: entry.name, source: remote, target: path.join(dir, localName(entry.name)), size: entry.size });
         continue;
       }
       const base = rpath.dirname(remote);
-      const toLocal = (p: string) => path.join(dir, ...rpath.relative(base, p).split('/'));
+      const toLocal = (p: string) => path.join(dir, ...rpath.relative(base, p).split('/').map((n) => localName(n)));
       const tree = await walk(sftp, remote);
       for (const d of tree.dirs) fs.mkdirSync(toLocal(d), { recursive: true });
       for (const f of tree.files) {
@@ -165,7 +166,7 @@ export function registerSftpIpc({ win, shells, handle, on, emit, str }: SftpIpcD
       tempDirs.push(tmp);
       const files: string[] = [];
       for (const e of picked) {
-        const local = path.join(tmp, e!.name);
+        const local = path.join(tmp, localName(e!.name));
         await call((cb) => sftp.fastGet(e!.path, local, cb));
         files.push(local);
       }

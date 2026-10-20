@@ -61,7 +61,7 @@ import { SettingsService } from './settings.service';
           <label for="cmd">Comando</label>
           <div>
             <input id="cmd" [value]="v.externalEditor" (change)="set({ externalEditor: val($event) })" style="width: 100%" />
-            <small>Se le añade la ruta del fichero. Ejemplos: <code>code</code>, <code>gedit</code>, <code>xed</code>. Cada vez que guardes, se sube.</small>
+            <small>Se le añade la ruta del fichero. Ejemplos: <code>code</code>, <code>gedit</code>, <code>notepad++</code>. Cada vez que guardes, se sube.</small>
           </div>
         }
       </div>

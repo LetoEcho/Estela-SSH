@@ -1,7 +1,7 @@
 # Estela SSH
 
-SSH (and later RDP) desktop client in the spirit of MobaXterm, for personal use. Electron + Angular + ssh2 + xterm.js.
-Linux first; Windows comes after the Linux version is complete.
+SSH, SFTP and RDP desktop client in the spirit of MobaXterm, for personal use. Electron + Angular + ssh2 + xterm.js.
+Linux and Windows (Windows layer written on Linux; verify on a real Windows machine).
 
 Talk to the user in Spanish. Code, comments and commit messages in English. UI text in Spanish.
 
@@ -18,8 +18,7 @@ Talk to the user in Spanish. Code, comments and commit messages in English. UI t
 | Isolated data dir (tests, experiments) | `ESTELA_USER_DATA=/some/dir npm start` |
 | Regenerate the app icon from build/icon.svg | `npx electron scripts/make-icon.cjs` (writes build/icon.png, 512×512) |
 | Local test SSH server (real bash + OpenSSH sftp-server, password `secret`) | `npm run test-server` (port 2222; `PORT=…`, `TEST_SHELL=/bin/sh` to try other shells) |
-
-Windows packaging (NSIS + portable) arrives with the Windows phase.
+| Windows packages (NSIS setup, portable, zip → `release/`) | `npm run dist:win` — on Linux, nsis/portable need `wine`; `npx electron-builder --win zip --x64` works without it |
 
 ## Layout
 
@@ -31,7 +30,7 @@ src/main/      Electron main: ssh2, stores, dialogs, platform layer
   store/       sessions.json, secrets.json (safeStorage), known_hosts (OpenSSH format)
   ssh/         SshConnection (jump chain + auth) → SshShell (pane), sftp helpers, transfer queue, tunnels, socks5
   local/       LocalPty (node-pty) for local terminals
-  rdp/         FreeRDP argument builder and launcher (external window)
+  rdp/         FreeRDP args / mstsc .rdp file builders and the launcher (external window)
   editor.ts    remote file editing (internal Monaco window or external editor + upload on save)
   sftp-ipc.ts  SFTP / transfer / drag-out IPC handlers
 src/renderer/  Angular 22 (standalone, zoneless, signals). Services hold state in signals; no NgRx.
@@ -106,24 +105,35 @@ test/          integration tests: in-process ssh2 servers; real-server.ts wraps 
 - **Window state**: main window bounds/maximized saved in `window.json`, ignored if off-screen.
 - **Paths**: remote paths always `path.posix`; local paths use `path` (see `src/main/paths.ts`).
 - **Keyboard shortcuts**: one table per OS in `src/renderer/app/keymap.ts` (no scattered OS checks in the UI).
-- **Packaging**: only `ssh2` is a runtime dependency; everything for the renderer is a devDependency (bundled by Angular).
+- **RDP on Windows**: mstsc with a temp `.rdp` file (UTF-16 + BOM). The password goes to Credential Manager
+  (`TERMSRV/<host>`, generic, session persistence) through a PowerShell `CredWriteW` P/Invoke whose inputs all arrive
+  on stdin (script passed with `-EncodedCommand`, no user data in it); the entry is deleted when mstsc exits.
+  mstsc shows its own certificate dialogs, so no pinning there. Raise window: `WScript.Shell.AppActivate(pid)`.
+- **Windows SSH agent**: `SSH_AUTH_SOCK`, else the `openssh-ssh-agent` pipe, else Pageant's own pipe (`pageant.*`,
+  Pageant ≥ 0.75), found by listing `\\.\pipe\`. ssh2's pagent.exe helper is never used.
+- **Windows file names**: remote names are made valid locally with `localName()` (paths.ts) on download/edit/drag.
+- **Portable build**: `PORTABLE_EXECUTABLE_DIR` set → data in `<exe dir>/estela-ssh-data` (DPAPI secrets stay
+  tied to the Windows user, so they do not travel with it).
+- **Packaging**: `npmRebuild: false` (natives are N-API prebuilds or optional), which also allows building Windows
+  packages from Linux. Only `ssh2` and `node-pty` are runtime dependencies; everything for the renderer is a devDependency (bundled by Angular).
 - npm 11 `allowScripts` in package.json: esbuild/electron-winstaller scripts allowed; ssh2/cpu-features native builds
   denied (ssh2 works in pure JS).
 
 ## OS differences
 
-| Concern | Linux | Windows (pending) |
+| Concern | Linux | Windows |
 |---|---|---|
-| SSH agent | `SSH_AUTH_SOCK` | Pageant or `\\.\pipe\openssh-ssh-agent` |
+| SSH agent | `SSH_AUTH_SOCK` | `SSH_AUTH_SOCK`, `\\.\pipe\openssh-ssh-agent`, Pageant pipe |
 | Secret storage | safeStorage → libsecret/KWallet; warn on `basic_text` | safeStorage → DPAPI |
-| Terminal copy/paste | Ctrl+Shift+C/V, Shift+Insert, copy on select, right-click paste | TBD in keymap.ts |
-| Panes | Ctrl+Shift+E split right, Ctrl+Shift+O split down, Ctrl+Shift+W close, Alt+arrows focus | TBD in keymap.ts |
-| Local shells | /etc/shells (+ $SHELL first), OSC 7 via rc files | PowerShell, cmd, WSL |
-| cwd of a local process | /proc/<pid>/cwd | TBD |
+| Terminal copy/paste | Ctrl+Shift+C/V, Shift+Insert, copy on select, right-click paste | same (as Windows Terminal) |
+| Panes | Ctrl+Shift+E split right, Ctrl+Shift+O split down, Ctrl+Shift+W close, Alt+arrows focus | same |
+| Local shells | /etc/shells (+ $SHELL first), OSC 7 via rc files | PowerShell 7, Windows PowerShell, cmd, Git Bash, WSL (no OSC 7) |
+| cwd of a local process | /proc/<pid>/cwd | not available (unused: SFTP is SSH-only) |
 | RDP client | xfreerdp3 / xfreerdp / sdl-freerdp3 | mstsc + .rdp + CredWrite via stdin |
 | Raise RDP window | xdotool or wmctrl (X11; not Wayland) | AppActivate by pid |
-| External editor | spawn command + file, detached | same |
-| Packages | AppImage, deb (recommends freerdp3-x11), rpm (recommends freerdp; needs `rpmbuild`) | NSIS, portable |
+| External editor | spawn command + file, detached | through the shell (so `code.cmd` works) |
+| Downloaded file names | as on the server | invalid characters → `_` (`localName`) |
+| Packages | AppImage, deb (recommends freerdp3-x11), rpm (recommends freerdp; needs `rpmbuild`) | NSIS, portable, zip |
 
 ## Testing notes
 
@@ -145,5 +155,5 @@ test/          integration tests: in-process ssh2 servers; real-server.ts wraps 
    (FreeRDP, certificate pinning, via SSH), import ~/.ssh/config & known_hosts, settings dialog.
 4. ✅ Settings (theme, fonts, scrollback, copy/paste behaviour, keepalive, auto-reconnect), terminal search
    (Ctrl+Shift+F), session logs, handshake timeout, window state, app icon, Linux packaging metadata.
-5. Optional: X11 forwarding, embedded RDP.
-Then: Windows platform layer + Windows CI/packages.
+5. Optional: X11 forwarding, embedded RDP (give pros/cons first, incl. FreeRDP on Windows).
+W. ✅ (untested on real Windows) Windows platform layer, mstsc RDP, CI matrix with windows-latest, NSIS/portable/zip.

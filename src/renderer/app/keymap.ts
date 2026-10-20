@@ -12,7 +12,7 @@ export type KeyAction =
   | 'focusDown'
   | 'search';
 
-// One table per OS; the windows table arrives with the Windows platform work.
+// One table per OS. Windows uses the same keys as Windows Terminal, which match the Linux table (the fallback).
 const KEYMAPS: Record<string, Record<string, KeyAction>> = {
   linux: {
     'ctrl+shift+c': 'copy',

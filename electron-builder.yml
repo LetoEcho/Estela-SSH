@@ -2,6 +2,8 @@ appId: io.github.estela.ssh
 productName: Estela SSH
 artifactName: ${name}-${version}-${arch}.${ext}
 copyright: Personal use
+# Natives are N-API (node-pty prebuilds) or optional (cpu-features): no per-Electron rebuild, so cross-builds work.
+npmRebuild: false
 directories:
   output: release
 files:
@@ -11,6 +13,8 @@ files:
   - build/icon.png
   # node-pty ships prebuilds for every OS; macOS is not a target.
   - '!node_modules/node-pty/prebuilds/darwin-*'
+  - '!node_modules/node-pty/prebuilds/win32-arm64'
+  - '!node_modules/node-pty/third_party/conpty/*/win10-arm64'
 linux:
   target: [AppImage, deb, rpm]
   category: Network
@@ -27,3 +31,15 @@ deb:
   recommends: [freerdp3-x11]
 rpm:
   fpm: ['--rpm-tag', 'Recommends: freerdp']
+win:
+  # nsis and portable need wine when built on Linux; zip does not.
+  target: [nsis, portable, zip]
+  executableName: estela-ssh
+  # Linux-built node-pty binaries are useless on Windows; it loads prebuilds/win32-x64.
+  files: ['!node_modules/node-pty/build/**']
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  artifactName: ${name}-${version}-setup.${ext}
+portable:
+  artifactName: ${name}-${version}-portable.${ext}

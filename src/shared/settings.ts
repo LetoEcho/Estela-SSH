@@ -4,7 +4,7 @@ export const DEFAULT_SETTINGS: Settings = {
   editor: 'internal',
   externalEditor: 'code',
   theme: 'system',
-  fontFamily: '"DejaVu Sans Mono", "Liberation Mono", monospace',
+  fontFamily: '"DejaVu Sans Mono", "Liberation Mono", "Cascadia Mono", Consolas, monospace',
   fontSize: 14,
   scrollback: 10_000,
   copyOnSelect: true,

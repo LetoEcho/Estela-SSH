@@ -287,7 +287,7 @@ class AuthFlow {
       this.primaryDone = true;
       if (this.s.auth === 'agent') {
         const agent = this.deps.agent();
-        if (!agent) this.error = 'No SSH agent available (SSH_AUTH_SOCK is not set)';
+        if (!agent) this.error = 'No SSH agent available (no SSH_AUTH_SOCK, OpenSSH agent or Pageant found)';
         else if (allowed('publickey')) return (this.lastMethod = 'agent', { type: 'agent', username, agent });
       }
       if (this.s.auth === 'key' && allowed('publickey')) {

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Settings } from '../shared/ipc';
+import { localName } from './paths';
 import { call, type Sftp } from './ssh/sftp';
 
 const MAX_EDIT_BYTES = 5 * 1024 * 1024;
@@ -46,7 +47,7 @@ export class EditorManager {
     }
     // External: download a private copy, open it, upload whenever it changes on disk.
     const dir = fs.mkdtempSync(path.join(this.deps.tempDir, 'edit-'));
-    const local = path.join(dir, name);
+    const local = path.join(dir, localName(name));
     await call((cb) => sftp.fastGet(remote, local, cb));
     let timer: ReturnType<typeof setTimeout> | undefined;
     let last: Buffer = fs.readFileSync(local);

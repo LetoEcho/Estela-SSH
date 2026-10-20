@@ -1,3 +1,4 @@
+import os from 'node:os';
 import { spawn, type IPty } from 'node-pty';
 import type { ShellEvents } from '../ssh/connection';
 import { platform } from '../platform';
@@ -12,7 +13,7 @@ export class LocalPty {
   open(shellPath: string, cols: number, rows: number, hookDir: string): void {
     try {
       const s = platform.localShellSpawn(shellPath, hookDir);
-      const proc = (this.proc = spawn(s.file, s.args, { name: 'xterm-256color', cols, rows, cwd: s.env['HOME'], env: s.env }));
+      const proc = (this.proc = spawn(s.file, s.args, { name: 'xterm-256color', cols, rows, cwd: os.homedir(), env: s.env }));
       proc.onData((d) => this.events.data(d));
       proc.onExit(({ exitCode }) => {
         if (!this.closed) this.events.status(exitCode === 0 ? 'closed' : 'error', exitCode === 0 ? undefined : `exit ${exitCode}`);

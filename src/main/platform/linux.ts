@@ -98,10 +98,13 @@ export const linux: Platform = {
   rdpClient() {
     for (const c of RDP_CLIENTS) {
       const p = findInPath(c);
-      if (p) return { path: p };
+      if (p) return { kind: 'freerdp', path: p };
     }
     return { error: 'No se encontró FreeRDP. Instálalo con: sudo apt install freerdp3-x11 (o freerdp en Red Hat)' };
   },
+
+  // FreeRDP gets the password on stdin; there is no credential store involved.
+  rdpCredential: () => Promise.reject(new Error('Not used with FreeRDP')),
 
   async focusWindow(pid) {
     // X11 only: Wayland does not let apps raise other apps' windows.

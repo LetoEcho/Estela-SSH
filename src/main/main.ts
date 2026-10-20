@@ -22,8 +22,13 @@ const CSP = [
   "connect-src 'self'",
 ].join('; ');
 
-// Keep the data dir free of spaces: ~/.config/estela-ssh. ESTELA_USER_DATA isolates test runs.
-app.setPath('userData', process.env['ESTELA_USER_DATA'] ?? path.join(app.getPath('appData'), 'estela-ssh'));
+// Keep the data dir free of spaces: ~/.config/estela-ssh (%APPDATA%\estela-ssh). ESTELA_USER_DATA isolates
+// test runs; the Windows portable build keeps its data next to the .exe.
+const portableDir = process.env['PORTABLE_EXECUTABLE_DIR'];
+app.setPath(
+  'userData',
+  process.env['ESTELA_USER_DATA'] ?? (portableDir ? path.join(portableDir, 'estela-ssh-data') : path.join(app.getPath('appData'), 'estela-ssh')),
+);
 protocol.registerSchemesAsPrivileged([
   { scheme: 'app', privileges: { standard: true, secure: true, supportFetchAPI: true } },
 ]);

@@ -13,3 +13,13 @@ export function collapseHome(p: string, home = os.homedir()): string {
   const rel = path.relative(home, p);
   return rel && !rel.startsWith('..') && !path.isAbsolute(rel) ? `~/${rel.split(path.sep).join('/')}` : p;
 }
+
+/**
+ * Remote file name → valid local file name. Windows forbids <>:"/\|?* and control characters,
+ * trailing dots/spaces and device names (CON, NUL, COM1…); those get replaced or prefixed with "_".
+ */
+export function localName(name: string, windows = path.sep === '\\'): string {
+  if (!windows) return name;
+  const n = name.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').replace(/[. ]+$/, (m) => '_'.repeat(m.length));
+  return /^(con|prn|aux|nul|com\d|lpt\d)(\.|$)/i.test(n) ? `_${n}` : n;
+}
