@@ -2,19 +2,21 @@ import { Component, ElementRef, OnInit, afterNextRender, computed, inject, input
 import { toSignal } from '@angular/core/rxjs-interop';
 import { NonNullableFormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import type { SecretKind, SshAuth, SshSession } from '../../shared/session';
-import { COLORS, ICONS } from './constants';
+import { COLORS, DEFAULT_SESSION_ICON } from './constants';
 import { cleanError, estela } from './estela';
 import { Icon } from './icon';
+import { IconPicker } from './icon-picker';
 import type { EditRequest } from './session-tree';
 import { SessionsService } from './sessions.service';
 
 @Component({
   selector: 'app-session-editor',
-  imports: [ReactiveFormsModule, Icon],
+  imports: [ReactiveFormsModule, Icon, IconPicker],
   templateUrl: './session-editor.html',
   styles: `
     .icons, .colors { display: flex; gap: 4px; flex-wrap: wrap; }
-    .icons button { padding: 2px 6px; }
+    .icons { align-items: center; }
+    .icons .current { font-size: 18px; padding: 2px 8px; }
     .colors span { width: 20px; height: 20px; border-radius: 4px; cursor: pointer; }
     .sel { outline: 2px solid var(--fg); }
     .warn { background: color-mix(in srgb, var(--warn) 20%, transparent); padding: 8px; border-radius: 4px; grid-column: 1 / -1; }
@@ -30,7 +32,7 @@ export class SessionEditor implements OnInit {
   private readonly dialog = viewChild.required<ElementRef<HTMLDialogElement>>('dlg');
 
   protected readonly colors = COLORS;
-  protected readonly icons = ICONS;
+  protected readonly pickingIcon = signal(false);
   protected readonly form = inject(NonNullableFormBuilder).group({
     name: ['', Validators.required],
     host: ['', Validators.required],
@@ -42,7 +44,7 @@ export class SessionEditor implements OnInit {
     initialDir: [''],
     folderId: [''],
     color: [COLORS[0]],
-    icon: [ICONS[0]],
+    icon: [DEFAULT_SESSION_ICON],
     secret: [''],
     clearSecret: [false],
   });
@@ -97,13 +99,9 @@ export class SessionEditor implements OnInit {
     if (p) this.form.patchValue({ keyPath: p });
   }
 
-  protected async pickIcon(): Promise<void> {
-    try {
-      const icon = await estela.invoke('dialog:pickIcon');
-      if (icon) this.form.patchValue({ icon });
-    } catch (e) {
-      this.error.set(cleanError(e));
-    }
+  protected setIcon(icon: string | null): void {
+    this.form.patchValue({ icon: icon ?? DEFAULT_SESSION_ICON });
+    this.pickingIcon.set(false);
   }
 
   protected async save(): Promise<void> {

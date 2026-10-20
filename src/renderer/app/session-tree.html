@@ -28,7 +28,7 @@
          (dragover)="dragOver($event, f.folder.id)" (drop)="drop($event, f.folder.id)"
          (click)="toggle(f.folder.id)" (contextmenu)="folderMenu($event, f.folder)">
       <span class="chev">{{ collapsed().has(f.folder.id) ? '▸' : '▾' }}</span>
-      <app-icon [icon]="f.folder.icon || '🗀'" />
+      <app-icon [icon]="f.folder.icon || defaultFolderIcon" />
       @if (renamingFolder() === f.folder.id) {
         <input #n [value]="f.folder.name" (click)="$event.stopPropagation()" (keydown.enter)="renameFolder(f.folder, n.value)"
                (keydown.escape)="renamingFolder.set(null)" (blur)="renameFolder(f.folder, n.value)" />
@@ -57,4 +57,9 @@
 
 @if (menu(); as m) {
   <app-context-menu [state]="m" (closed)="menu.set(null)" />
+}
+
+@if (iconTarget(); as t) {
+  <app-icon-picker [current]="t.item.icon ?? ''" [removable]="t.kind === 'folder' ? !!t.item.icon : t.item.icon !== defaultSessionIcon"
+                   (picked)="setIcon($event)" (closed)="iconTarget.set(null)" />
 }

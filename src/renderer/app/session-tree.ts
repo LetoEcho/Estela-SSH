@@ -2,8 +2,10 @@ import { NgTemplateOutlet } from '@angular/common';
 import { Component, computed, inject, output, signal } from '@angular/core';
 import type { Folder, Session } from '../../shared/session';
 import { ContextMenu, type MenuState } from './context-menu';
-import { cleanError, estela } from './estela';
+import { cleanError } from './estela';
+import { DEFAULT_FOLDER_ICON, DEFAULT_SESSION_ICON } from './constants';
 import { Icon } from './icon';
+import { IconPicker } from './icon-picker';
 import { SessionsService } from './sessions.service';
 import { TabsService } from './tabs.service';
 
@@ -16,7 +18,7 @@ const DRAG_TYPE = 'application/x-estela-item';
 
 @Component({
   selector: 'app-session-tree',
-  imports: [NgTemplateOutlet, ContextMenu, Icon],
+  imports: [NgTemplateOutlet, ContextMenu, Icon, IconPicker],
   templateUrl: './session-tree.html',
   styles: `
     :host { display: flex; flex-direction: column; height: 100%; }
@@ -44,6 +46,9 @@ export class SessionTree {
   protected readonly renamingFolder = signal<string | null>(null);
   protected readonly dropTarget = signal<string | null | undefined>(undefined);
   protected readonly menu = signal<MenuState | null>(null);
+  protected readonly iconTarget = signal<{ kind: 'folder'; item: Folder } | { kind: 'session'; item: Session } | null>(null);
+  protected readonly defaultFolderIcon = DEFAULT_FOLDER_ICON;
+  protected readonly defaultSessionIcon = DEFAULT_SESSION_ICON;
 
   protected connect(s: Session): void {
     this.tabs.open(s);
@@ -68,10 +73,12 @@ export class SessionTree {
     if (name.trim() && name.trim() !== f.name) await this.sessions.saveFolder({ ...f, name: name.trim() });
   }
 
-  private async pickFolderIcon(f: Folder): Promise<void> {
+  protected async setIcon(icon: string | null): Promise<void> {
+    const t = this.iconTarget();
+    this.iconTarget.set(null);
     try {
-      const icon = await estela.invoke('dialog:pickIcon');
-      if (icon) await this.sessions.saveFolder({ ...f, icon });
+      if (t?.kind === 'folder') await this.sessions.saveFolder({ ...t.item, icon: icon ?? undefined });
+      if (t?.kind === 'session') await this.sessions.saveSession({ ...t.item, icon: icon ?? '' });
     } catch (err) {
       alert(cleanError(err));
     }
@@ -114,6 +121,7 @@ export class SessionTree {
       { label: 'Conectar', action: () => this.connect(s) },
       { label: 'Editar…', action: () => this.edit.emit({ session: s, folderId: s.folderId }) },
       { label: 'Duplicar', action: () => void this.sessions.duplicate(s) },
+      { label: 'Cambiar icono…', action: () => this.iconTarget.set({ kind: 'session', item: s }) },
       {
         label: 'Borrar',
         danger: true,
@@ -127,8 +135,7 @@ export class SessionTree {
       { label: 'Nueva sesión aquí…', action: () => this.edit.emit({ folderId: f.id }) },
       { label: 'Nueva subcarpeta', action: () => void this.newFolder(f.id) },
       { label: 'Renombrar', action: () => this.renamingFolder.set(f.id) },
-      { label: 'Cambiar icono…', action: () => void this.pickFolderIcon(f) },
-      ...(f.icon ? [{ label: 'Quitar icono', action: () => void this.sessions.saveFolder({ ...f, icon: undefined }) }] : []),
+      { label: 'Cambiar icono…', action: () => this.iconTarget.set({ kind: 'folder', item: f }) },
       {
         label: 'Borrar carpeta',
         danger: true,

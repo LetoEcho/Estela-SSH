@@ -75,13 +75,8 @@
 
     <label>Icono</label>
     <div class="icons">
-      @for (i of icons; track i) {
-        <button type="button" [class.sel]="form.controls.icon.value === i" (click)="form.patchValue({ icon: i })">{{ i }}</button>
-      }
-      @if (form.controls.icon.value.startsWith('data:')) {
-        <button type="button" class="sel"><app-icon [icon]="form.controls.icon.value" /></button>
-      }
-      <button type="button" title="Icono personalizado (.ico, .png, .svg)" (click)="pickIcon()">Personalizado…</button>
+      <button type="button" class="current" (click)="pickingIcon.set(true)"><app-icon [icon]="form.controls.icon.value" /></button>
+      <button type="button" (click)="pickingIcon.set(true)">Elegir…</button>
     </div>
 
     @if (error()) {
@@ -93,3 +88,6 @@
     <button type="button" class="primary" (click)="save()">Guardar</button>
   </div>
 </dialog>
+@if (pickingIcon()) {
+  <app-icon-picker [current]="form.controls.icon.value" (picked)="setIcon($event)" (closed)="pickingIcon.set(false)" />
+}
