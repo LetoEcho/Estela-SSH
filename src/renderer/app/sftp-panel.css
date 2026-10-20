@@ -12,8 +12,8 @@
 .name { flex: 1; overflow: hidden; text-overflow: ellipsis; }
 .size { color: var(--fg-dim); font-size: 11px; }
 .mode { color: var(--fg-dim); font-family: monospace; font-size: 11px; }
-.empty, .error { padding: 12px; color: var(--fg-dim); }
-.error { color: var(--danger); }
+.empty, .load-error { padding: 12px; color: var(--fg-dim); }
+.load-error { color: var(--danger); }
 .transfers { border-top: 1px solid var(--border); max-height: 35%; overflow: auto; flex: none; }
 .thead { display: flex; justify-content: space-between; align-items: center; padding: 4px 8px; color: var(--fg-dim); }
 .transfer { display: flex; gap: 6px; align-items: center; padding: 2px 8px; }

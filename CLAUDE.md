@@ -28,7 +28,10 @@ src/preload/   contextBridge → window.estela; bundled to one file (sandboxed p
 src/main/      Electron main: ssh2, stores, dialogs, platform layer
   platform/    OS-specific code behind the Platform interface (types.ts); index.ts is the ONLY process.platform check
   store/       sessions.json, secrets.json (safeStorage), known_hosts (OpenSSH format)
-  ssh/         SshShell (one per pane: target + jump clients, shell hook, SFTP), sftp helpers, transfer queue
+  ssh/         SshConnection (jump chain + auth) → SshShell (pane), sftp helpers, transfer queue, tunnels, socks5
+  local/       LocalPty (node-pty) for local terminals
+  rdp/         FreeRDP argument builder and launcher (external window)
+  editor.ts    remote file editing (internal Monaco window or external editor + upload on save)
   sftp-ipc.ts  SFTP / transfer / drag-out IPC handlers
 src/renderer/  Angular 22 (standalone, zoneless, signals). Services hold state in signals; no NgRx.
 test/          integration tests: in-process ssh2 servers; real-server.ts wraps real bash + sftp-server
@@ -69,6 +72,27 @@ test/          integration tests: in-process ssh2 servers; real-server.ts wraps 
 - **Drag & drop**: OS → panel uses `webUtils.getPathForFile` (preload). Panel → OS uses `webContents.startDrag`, which
   needs local files, so files only, ≤ 50 MB, downloaded to a temp dir first (best effort: if the mouse is released
   before the download ends, no drag starts). Temp dirs are removed when the window goes away.
+- **Tunnels**: each tunnel owns its own `SshConnection` (stopping one never touches a terminal). L = local server +
+  `forwardOut`, R = `forwardIn` + 'tcp connection', D = our minimal SOCKS5 (no auth, CONNECT only). `autoStart`
+  tunnels start once per app run after the UI loads (so host-key/password prompts can be answered). They survive a
+  renderer reload and stop when the main window closes.
+- **Local terminals**: node-pty (N-API, so no per-Electron rebuild; must stay `external` in esbuild). OSC 7 without
+  typing anything: bash `--rcfile` (sources ~/.bashrc; Debian still reads /etc/bash.bashrc), zsh `ZDOTDIR` chain,
+  fish `--init-command`. The renderer may only open shells listed by `platform.localShells()`.
+- **Multi-exec**: renderer only. Input typed in a selected pane is written to every selected, connected pane (any tab).
+- **RDP (phase A)**: external FreeRDP 3 window. Password via stdin (`/from-stdin:force`), never in argv. FreeRDP
+  cannot ask about certificates without a TTY: it prints "Certificate details … Thumbprint" and aborts; we parse it,
+  ask with our own dialog (first use / CHANGED warning), store the SHA-256 in `rdp-certs.json` (keyed by the real
+  host:port) and relaunch with `/cert:fingerprint:sha256:…` — so only that certificate is accepted, also through
+  tunnels. "Via SSH" = an ephemeral local forward on a free port, closed when FreeRDP exits. RD Gateway reuses the
+  server credentials. Password saved (if asked) after 15 s alive. Raise window: xdotool or wmctrl (X11 only).
+- **Editor**: second `BrowserWindow` (same preload/security) with `#editor=<id>`; it may only call `editor:load` /
+  `editor:save`. Monaco is lazy-loaded; its CSS is the prebuilt `min/…/editor.main.css` emitted as a non-injected
+  `monaco.css` bundle (Angular does not inject CSS imported from lazy chunks). Unsaved changes → `will-prevent-unload`
+  confirmation. External editor: private temp copy, `fs.watch`, upload on change; max 5 MB, binary files refused.
+- **OpenSSH import**: `~/.ssh/config` with first-match-wins semantics, `Host *` defaults, ProxyJump chains (hops become
+  sessions), duplicates skipped; Include/Match/ProxyCommand ignored. known_hosts lines (incl. hashed `|1|`) are appended
+  to ours; @cert-authority/@revoked skipped.
 - **Paths**: remote paths always `path.posix`; local paths use `path` (see `src/main/paths.ts`).
 - **Keyboard shortcuts**: one table per OS in `src/renderer/app/keymap.ts` (no scattered OS checks in the UI).
 - **Packaging**: only `ssh2` is a runtime dependency; everything for the renderer is a devDependency (bundled by Angular).
@@ -83,12 +107,20 @@ test/          integration tests: in-process ssh2 servers; real-server.ts wraps 
 | Secret storage | safeStorage → libsecret/KWallet; warn on `basic_text` | safeStorage → DPAPI |
 | Terminal copy/paste | Ctrl+Shift+C/V, Shift+Insert, copy on select, right-click paste | TBD in keymap.ts |
 | Panes | Ctrl+Shift+E split right, Ctrl+Shift+O split down, Ctrl+Shift+W close, Alt+arrows focus | TBD in keymap.ts |
+| Local shells | /etc/shells (+ $SHELL first), OSC 7 via rc files | PowerShell, cmd, WSL |
+| cwd of a local process | /proc/<pid>/cwd | TBD |
+| RDP client | xfreerdp3 / xfreerdp / sdl-freerdp3 | mstsc + .rdp + CredWrite via stdin |
+| Raise RDP window | xdotool or wmctrl (X11; not Wayland) | AppActivate by pid |
+| External editor | spawn command + file, detached | same |
 | Packages | AppImage, deb, rpm | NSIS, portable |
 
 ## Testing notes
 
 - `test/ssh.spec.ts` spins up ssh2 servers in-process (password, encrypted key, jump host, host-key change).
 - `test/real.spec.ts` runs the shell hook and SFTP against real bash and OpenSSH's sftp-server (skipped if missing).
+- `test/tunnels.spec.ts` runs L/R/D tunnels end to end against the real test server (which also forwards ports).
+- RDP was verified by hand against `freerdp-shadow-cli3` (package freerdp3-shadow-x11, extracted with
+  `apt-get download`, `/sam-file` with an NT hash). It writes its own cert to ~/.config/freerdp/shadow — clean up.
   zsh and fish hooks are not covered locally (not installed on the dev machine).
 - Manual smoke tests can drive the app via `--remote-debugging-port` + CDP; use `ESTELA_USER_DATA` to avoid touching
   the real `~/.config/estela-ssh`. Synthetic DOM key events double characters in xterm; use CDP `Input.dispatchKeyEvent`.
@@ -98,15 +130,8 @@ test/          integration tests: in-process ssh2 servers; real-server.ts wraps 
 
 1. ✅ Sessions tree, tabs with colour/icon/status, SSH terminal, host keys, secrets, import/export, custom icons.
 2. ✅ Split panes + SFTP panel following the terminal's cwd (OSC 7 hook, /proc fallback), transfers, chmod, D&D.
-3. Multi-exec, tunnels, local terminal (node-pty, OSC 7 via rcfile), remote file editing (Monaco/external editor),
-   RDP phase A, import ~/.ssh/config & known_hosts.
-   Phase 3 status: only deps added (node-pty 1.1.0 with install script allowed; monaco-editor 0.57 whose `min/` is
-   26 MB and has no AMD loader, so it must be bundled as ESM). Planned design: Pane target ssh|local; LocalPty with
-   OSC 7 via bash --rcfile / zsh ZDOTDIR / fish --init-command; multi-exec in renderer (broadcast onData to selected
-   panes); TunnelManager (L via forwardOut, R via forwardIn, D via own SOCKS5) reusing SshShell's connect chain;
-   RDP tab kind launching FreeRDP (password typed on its "Password:" prompt, cert prompt forwarded to our dialog,
-   ephemeral L tunnel for "via SSH"), focus with wmctrl/xdotool; editor in a second BrowserWindow;
-   ~/.ssh/config + hashed known_hosts import. FreeRDP is not installed yet (`sudo apt install freerdp3-x11`).
+3. ✅ Multi-exec, tunnels (L/R/D + auto start), local terminal, remote editing (Monaco / external), RDP phase A
+   (FreeRDP, certificate pinning, via SSH), import ~/.ssh/config & known_hosts, settings dialog.
 4. Polish (keepalive/reconnect settings, themes, fonts, logging) and packaging.
 5. Optional: X11 forwarding, embedded RDP.
 Then: Windows platform layer + Windows CI/packages.

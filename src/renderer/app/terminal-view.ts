@@ -6,16 +6,28 @@ import { Terminal } from '@xterm/xterm';
 import { parseOsc7 } from '../../shared/osc7';
 import { estela } from './estela';
 import { keyAction } from './keymap';
-import { TabsService, type Pane, type Tab } from './tabs.service';
+import { MultiExecService } from './multi-exec.service';
+import { Tab, TabsService, type Pane } from './tabs.service';
 
 @Component({
   selector: 'app-terminal',
-  template: '<div #host class="host" (contextmenu)="paste($event)"></div>',
-  host: { '[class.focused]': 'focused()', '(focusin)': 'tab().activePane.set(pane())' },
+  template: `
+    <div #host class="host" (contextmenu)="paste($event)"></div>
+    @if (multi.enabled()) {
+      <label class="mx" [class.on]="multi.isSelected(pane())">
+        <input type="checkbox" [checked]="multi.isSelected(pane())" (change)="multi.toggleSelected(pane())" /> multi-exec
+      </label>
+    }
+  `,
+  host: { '[class.focused]': 'focused()', '[class.multi]': 'multi.isSelected(pane())', '(focusin)': 'tab().activePane.set(pane())' },
   styles: `
-    :host { display: block; height: 100%; padding: 4px 0 0 6px; background: #1e1f22; border: 1px solid transparent; }
+    :host { display: block; height: 100%; padding: 4px 0 0 6px; background: #1e1f22; border: 1px solid transparent; position: relative; }
     :host(.focused) { border-color: var(--accent); }
+    :host(.multi) { border-color: var(--warn); }
     .host { height: 100%; }
+    .mx { position: absolute; top: 4px; right: 18px; z-index: 10; background: var(--bg-3); padding: 2px 8px; border-radius: 4px;
+          font-size: 12px; opacity: 0.85; }
+    .mx.on { background: color-mix(in srgb, var(--warn) 45%, var(--bg-3)); }
   `,
 })
 export class TerminalView implements OnDestroy {
@@ -26,6 +38,7 @@ export class TerminalView implements OnDestroy {
   readonly focused = input(false);
   private readonly host = viewChild.required<ElementRef<HTMLElement>>('host');
   private readonly tabs = inject(TabsService);
+  protected readonly multi = inject(MultiExecService);
   private fit = new FitAddon();
   private observer?: ResizeObserver;
 
@@ -83,7 +96,9 @@ export class TerminalView implements OnDestroy {
     });
     term.onData((d) => {
       const s = pane.status();
-      if (s === 'connected') this.tabs.write(pane, d);
+      if (s === 'connected') {
+        if (!this.multi.broadcast(pane, d)) this.tabs.write(pane, d);
+      }
       else if ((s === 'closed' || s === 'error') && d.toLowerCase() === 'r') this.tabs.reconnect(pane);
     });
     term.onResize(({ cols, rows }) => this.tabs.resize(pane, cols, rows));
@@ -97,7 +112,7 @@ export class TerminalView implements OnDestroy {
       const action = keyAction(estela.os, e);
       if (!action) return true;
       e.preventDefault();
-      const tab = this.tabs.tabs().find((t) => t.panes().includes(pane));
+      const tab = this.tabs.tabs().find((t): t is Tab => t instanceof Tab && t.panes().includes(pane));
       switch (action) {
         case 'copy': void navigator.clipboard.writeText(term.getSelection()); break;
         case 'paste': void this.pasteClipboard(); break;

@@ -8,7 +8,7 @@ const common = {
   format: 'cjs',
   sourcemap: true,
   logLevel: 'info',
-  external: ['electron', 'ssh2'],
+  external: ['electron', 'ssh2', 'node-pty'],
 };
 const configs = [
   { ...common, entryPoints: ['src/main/main.ts'], outfile: 'dist/main/main.js' },

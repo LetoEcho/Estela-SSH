@@ -28,6 +28,14 @@ import { PromptsService, type PendingPrompt } from './prompts.service';
               {{ p.oldFingerprint ? 'Reemplazar la clave guardada' : 'Aceptar y guardar' }}
             </button>
           </div>
+        } @else if (p.kind === 'choice') {
+          <h3 [class.danger]="p.warning">{{ p.warning ? '⚠ ' : '' }}{{ p.title }}</h3>
+          <pre class="text">{{ p.text }}</pre>
+          <div class="actions">
+            @for (c of p.choices; track c.value) {
+              <button [class.primary]="c.primary && !p.warning" [class.danger]="c.primary && p.warning" (click)="prompts.answer(p, c.value)">{{ c.label }}</button>
+            }
+          </div>
         } @else {
           <h3>{{ p.title }}</h3>
           <form (submit)="$event.preventDefault(); prompts.answer(p, { value: pw.value, save: save() })">
@@ -48,8 +56,9 @@ import { PromptsService, type PendingPrompt } from './prompts.service';
     }
   `,
   styles: `
-    .danger { color: var(--danger); }
+    h3.danger { color: var(--danger); }
     p { max-width: 520px; line-height: 1.4; }
+    .text { max-width: 640px; max-height: 50vh; overflow: auto; white-space: pre-wrap; word-break: break-all; tab-size: 2; font-size: 12px; background: var(--bg); padding: 8px; border-radius: 4px; }
   `,
 })
 export class PromptDialog {
@@ -73,6 +82,6 @@ export class PromptDialog {
   }
 
   protected cancel(p: PendingPrompt): void {
-    this.prompts.answer(p, p.kind === 'hostkey' ? 'reject' : null);
+    this.prompts.answer(p, p.kind === 'hostkey' ? 'reject' : p.kind === 'choice' ? 'N' : null);
   }
 }

@@ -13,7 +13,7 @@ export const call = <T = void>(fn: (cb: (err: Error | null | undefined, result?:
 /** The subset of SFTPWrapper we use; tests pass a fake. */
 export type Sftp = Pick<
   SFTPWrapper,
-  'readdir' | 'stat' | 'lstat' | 'mkdir' | 'rmdir' | 'unlink' | 'rename' | 'chmod' | 'realpath' | 'fastGet' | 'fastPut' | 'end'
+  'readdir' | 'stat' | 'lstat' | 'mkdir' | 'rmdir' | 'unlink' | 'rename' | 'chmod' | 'realpath' | 'fastGet' | 'fastPut' | 'end' | 'readFile' | 'writeFile'
 >;
 
 export async function list(sftp: Sftp, dir: string): Promise<SftpEntry[]> {

@@ -47,10 +47,18 @@
             "tsConfig": "tsconfig.app.json",
             "styles": [
               "node_modules/@xterm/xterm/css/xterm.css",
-              "src/renderer/styles.css"
+              "src/renderer/styles.css",
+              {
+                "input": "node_modules/monaco-editor/min/vs/editor/editor.main.css",
+                "bundleName": "monaco",
+                "inject": false
+              }
             ],
             "index": "src/renderer/index.html",
-            "outputPath": "dist/renderer"
+            "outputPath": "dist/renderer",
+            "loader": {
+              ".ttf": "file"
+            }
           },
           "configurations": {
             "production": {

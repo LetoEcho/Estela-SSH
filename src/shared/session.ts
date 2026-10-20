@@ -7,6 +7,18 @@ export interface Folder {
 
 export type SshAuth = 'password' | 'key' | 'agent';
 
+/** L: local port → remote dest; R: remote port → local dest; D: local SOCKS5 proxy. */
+export interface Tunnel {
+  id: string;
+  kind: 'L' | 'R' | 'D';
+  bindHost: string;
+  bindPort: number;
+  destHost?: string;
+  destPort?: number;
+  /** Start when the app starts. */
+  autoStart: boolean;
+}
+
 export interface SshSession {
   type: 'ssh';
   id: string;
@@ -23,10 +35,33 @@ export interface SshSession {
   keyPath?: string;
   jumpSessionId?: string;
   initialDir?: string;
+  tunnels?: Tunnel[];
 }
 
-// RDP sessions join this union in phase 3.
-export type Session = SshSession;
+export interface RdpSession {
+  type: 'rdp';
+  id: string;
+  name: string;
+  folderId: string | null;
+  color: string;
+  icon: string;
+  host: string;
+  port: number;
+  username: string;
+  domain?: string;
+  /** 'fullscreen' or a window size such as "1600x900". */
+  screen: string;
+  multimon: boolean;
+  clipboard: boolean;
+  /** Redirect the local home directory as a drive. */
+  drives: boolean;
+  /** RD Gateway host[:port]; uses the same credentials as the server. */
+  gateway?: string;
+  /** Reach the RDP host through this SSH session (automatic local tunnel). */
+  viaSshSessionId?: string;
+}
+
+export type Session = SshSession | RdpSession;
 
 export interface SessionsFile {
   version: 1;
@@ -82,8 +117,65 @@ export function validateFolder(x: unknown): Folder {
   return f;
 }
 
+function port(o: Record<string, unknown>, k: string, optional = false): number | undefined {
+  const v = o[k];
+  if (optional && (v === undefined || v === null)) return undefined;
+  if (!Number.isInteger(v) || (v as number) < 0 || (v as number) > 65535) fail(`${k} must be 0-65535`);
+  return v as number;
+}
+
+export function validateTunnel(x: unknown): Tunnel {
+  const o = obj(x, 'tunnel');
+  const kind = o['kind'];
+  if (kind !== 'L' && kind !== 'R' && kind !== 'D') fail('tunnel kind must be L, R or D');
+  const t: Tunnel = {
+    id: str(o, 'id')!,
+    kind,
+    bindHost: str(o, 'bindHost', true) ?? '127.0.0.1',
+    bindPort: port(o, 'bindPort')!,
+    autoStart: o['autoStart'] === true,
+  };
+  if (kind !== 'D') {
+    t.destHost = str(o, 'destHost')!;
+    t.destPort = port(o, 'destPort')!;
+    if (t.destPort === 0) fail('destPort must be 1-65535');
+  }
+  if (kind !== 'R' && t.bindPort === 0) fail('bindPort must be 1-65535');
+  return t;
+}
+
+function validateRdp(o: Record<string, unknown>): RdpSession {
+  const screen = str(o, 'screen', true) ?? 'fullscreen';
+  if (screen !== 'fullscreen' && !/^\d{3,5}x\d{3,5}$/.test(screen)) fail('screen must be fullscreen or WIDTHxHEIGHT');
+  const s: RdpSession = {
+    type: 'rdp',
+    id: str(o, 'id')!,
+    name: str(o, 'name')!,
+    folderId: str(o, 'folderId', true) ?? null,
+    color: str(o, 'color', true) ?? '#4a90d9',
+    icon: icon(o) ?? '🪟',
+    host: str(o, 'host')!,
+    port: port(o, 'port', true) ?? 3389,
+    username: str(o, 'username')!,
+    domain: str(o, 'domain', true),
+    screen,
+    multimon: o['multimon'] === true,
+    clipboard: o['clipboard'] !== false,
+    drives: o['drives'] === true,
+    gateway: str(o, 'gateway', true),
+    viaSshSessionId: str(o, 'viaSshSessionId', true),
+  };
+  if (s.port === 0) fail('port must be 1-65535');
+  // FreeRDP options are built from these: keep them free of separators that could inject options.
+  for (const [k, v] of Object.entries({ host: s.host, username: s.username, domain: s.domain, gateway: s.gateway })) {
+    if (v && /[\s,/\\]/.test(v)) fail(`${k} contains invalid characters`);
+  }
+  return s;
+}
+
 export function validateSession(x: unknown): Session {
   const o = obj(x, 'session');
+  if (o['type'] === 'rdp') return validateRdp(o);
   if (o['type'] !== 'ssh') fail(`unsupported session type ${String(o['type'])}`);
   const port = o['port'];
   if (!Number.isInteger(port) || (port as number) < 1 || (port as number) > 65535) fail('port must be 1-65535');
@@ -104,6 +196,7 @@ export function validateSession(x: unknown): Session {
     jumpSessionId: str(o, 'jumpSessionId', true),
     initialDir: str(o, 'initialDir', true),
   };
+  if (Array.isArray(o['tunnels']) && o['tunnels'].length) s.tunnels = o['tunnels'].map(validateTunnel);
   if (s.auth === 'key' && !s.keyPath) fail('keyPath is required for key auth');
   if (s.jumpSessionId === s.id) fail('a session cannot be its own jump host');
   return s;

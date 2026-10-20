@@ -1,12 +1,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { app, BrowserWindow, Menu, net, protocol, safeStorage, session, shell } from 'electron';
+import { app, BrowserWindow, dialog, Menu, net, protocol, safeStorage, session, shell } from 'electron';
 import { registerIpc } from './ipc';
 import { platform } from './platform';
 import { KnownHosts } from './store/known-hosts';
 import { SecretStore } from './store/secrets';
+import { RdpCerts } from './store/rdp-certs';
 import { SessionStore } from './store/sessions';
+import { SettingsStore } from './store/settings';
 
 const DEV_URL = process.env['ESTELA_DEV_URL'];
 const RENDERER_DIR = path.join(__dirname, '../renderer/browser');
@@ -48,11 +50,38 @@ app.whenReady().then(() => {
     sessions: new SessionStore(path.join(dir, 'sessions.json')),
     secrets: new SecretStore(path.join(dir, 'secrets.json'), safeStorage, platform.secretBackend()),
     knownHosts: new KnownHosts(path.join(dir, 'known_hosts')),
+    settings: new SettingsStore(path.join(dir, 'settings.json')),
+    rdpCerts: new RdpCerts(path.join(dir, 'rdp-certs.json')),
   };
 
+  const win = createWindow(1280, 800);
+  const ipc = registerIpc(win, stores, {
+    userData: dir,
+    openEditorWindow: (editId) => {
+      const ed = createWindow(1000, 750, `#editor=${encodeURIComponent(editId)}`);
+      // Unsaved changes: Monaco's page cancels unload; ask before discarding.
+      ed.webContents.on('will-prevent-unload', (e) => {
+        const r = dialog.showMessageBoxSync(ed, {
+          type: 'question',
+          buttons: ['Descartar cambios', 'Cancelar'],
+          defaultId: 1,
+          message: 'Hay cambios sin guardar. ¿Cerrar de todas formas?',
+        });
+        if (r === 0) e.preventDefault();
+      });
+    },
+  });
+  win.on('closed', () => {
+    ipc.dispose();
+    for (const w of BrowserWindow.getAllWindows()) w.close();
+  });
+});
+
+/** Same security settings for every window; `hash` selects the editor view. */
+function createWindow(width: number, height: number, hash = ''): BrowserWindow {
   const win = new BrowserWindow({
-    width: 1280,
-    height: 800,
+    width,
+    height,
     title: 'Estela SSH',
     backgroundColor: '#1e1e1e',
     webPreferences: {
@@ -62,8 +91,6 @@ app.whenReady().then(() => {
       sandbox: true,
     },
   });
-  const dispose = registerIpc(win, stores);
-  win.on('closed', dispose);
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//.test(url)) void shell.openExternal(url);
     return { action: 'deny' };
@@ -72,7 +99,8 @@ app.whenReady().then(() => {
   win.webContents.on('before-input-event', (_e, input) => {
     if (input.type === 'keyDown' && input.key === 'F12') win.webContents.toggleDevTools();
   });
-  void win.loadURL(DEV_URL ?? 'app://estela/index.html');
-});
+  void win.loadURL((DEV_URL ?? 'app://estela/index.html') + hash);
+  return win;
+}
 
 app.on('window-all-closed', () => app.quit());

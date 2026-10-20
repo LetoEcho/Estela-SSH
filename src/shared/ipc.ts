@@ -26,6 +26,20 @@ export interface AuthPrompt {
 }
 export type AuthAnswer = { value: string; save: boolean } | null;
 
+/** A generic multiple-choice question (e.g. FreeRDP's certificate prompt). Answer: a choice value or null. */
+export interface ChoicePrompt {
+  title: string;
+  text: string;
+  warning?: boolean;
+  choices: { value: string; label: string; primary?: boolean }[];
+}
+
+export interface RdpStatus {
+  rdpId: string;
+  state: 'starting' | 'running' | 'exited' | 'error';
+  error?: string;
+}
+
 export interface SftpEntry {
   name: string;
   /** Absolute remote path (posix). */
@@ -52,6 +66,26 @@ export interface TransferState {
   transferred: number;
   state: 'queued' | 'running' | 'done' | 'error' | 'cancelled';
   error?: string;
+}
+
+export interface LocalShell {
+  path: string;
+  name: string;
+}
+
+export interface TunnelStatus {
+  sessionId: string;
+  tunnelId: string;
+  state: 'starting' | 'running' | 'stopped' | 'error';
+  /** Actual listening port (useful when the configured one is 0). */
+  port?: number;
+  error?: string;
+}
+
+export interface Settings {
+  /** 'internal' = Monaco window; otherwise the command line of an external editor, e.g. "code --wait". */
+  editor: 'internal' | 'external';
+  externalEditor: string;
 }
 
 /** ipcRenderer.invoke → ipcMain.handle */
@@ -87,6 +121,26 @@ export interface InvokeApi {
   /** localDir null = the user's Downloads folder. */
   'transfer:download': (connId: string, remotePaths: string[], localDir: string | null) => void;
   'transfer:cancel': (id: string) => void;
+  'local:shells': () => LocalShell[];
+  'conn:openLocal': (shellPath: string, cols: number, rows: number) => string;
+  'tunnel:list': () => TunnelStatus[];
+  'tunnel:start': (sessionId: string, tunnelId: string) => void;
+  'tunnel:stop': (tunnelId: string) => void;
+  /** Returns an id for the RDP tab; progress arrives as 'rdp:status'. */
+  'rdp:launch': (sessionId: string) => string;
+  'rdp:focus': (rdpId: string) => boolean;
+  'rdp:stop': (rdpId: string) => void;
+  /** Imports Host entries from ~/.ssh/config into a folder; returns how many sessions were added. */
+  'import:sshConfig': () => number;
+  /** Merges ~/.ssh/known_hosts into ours; returns how many lines were added. */
+  'import:knownHosts': () => number;
+  'settings:get': () => Settings;
+  'settings:set': (s: Settings) => void;
+  /** Opens a remote file in the configured editor (internal window or external command). */
+  'editor:open': (connId: string, remotePath: string) => void;
+  /** For the editor window: the file it was opened for. */
+  'editor:load': (editId: string) => { name: string; path: string; content: string };
+  'editor:save': (editId: string, content: string) => void;
 }
 
 /** ipcRenderer.send → ipcMain.on (hot path, no reply) */
@@ -113,6 +167,9 @@ export interface EventApi {
   'transfer:update': TransferState;
   /** Non-fatal problems the user should see (e.g. a failed drag-out). */
   'app:notice': { message: string };
+  'prompt:choice': ChoicePrompt & { promptId: string };
+  'tunnel:status': TunnelStatus;
+  'rdp:status': RdpStatus;
 }
 
 // Runtime allow-lists used by the preload; `satisfies` keeps them in sync with the types.
@@ -121,11 +178,14 @@ export const INVOKE_CHANNELS = [
   'sessions:deleteFolder', 'sessions:export', 'sessions:import', 'secrets:status',
   'secrets:acceptInsecure', 'secrets:has', 'secrets:set', 'dialog:openFile', 'dialog:pickIcon', 'dialog:openFiles',
   'dialog:openDir', 'conn:open', 'conn:cwd', 'sftp:home', 'sftp:list', 'sftp:mkdir', 'sftp:rename', 'sftp:delete',
-  'sftp:chmod', 'transfer:conflicts', 'transfer:upload', 'transfer:download', 'transfer:cancel',
+  'sftp:chmod', 'transfer:conflicts', 'transfer:upload', 'transfer:download', 'transfer:cancel', 'local:shells',
+  'conn:openLocal', 'tunnel:list', 'tunnel:start', 'tunnel:stop', 'rdp:launch', 'rdp:focus', 'rdp:stop',
+  'import:sshConfig', 'import:knownHosts', 'settings:get', 'settings:set', 'editor:open', 'editor:load', 'editor:save',
 ] as const satisfies readonly (keyof InvokeApi)[];
 export const SEND_CHANNELS = ['conn:write', 'conn:resize', 'conn:close', 'prompt:answer', 'conn:retryHook', 'sftp:dragOut'] as const satisfies readonly (keyof SendApi)[];
 export const EVENT_CHANNELS = [
   'conn:data', 'conn:status', 'sessions:changed', 'prompt:hostkey', 'prompt:auth', 'conn:hook', 'transfer:update', 'app:notice',
+  'prompt:choice', 'tunnel:status', 'rdp:status',
 ] as const satisfies readonly (keyof EventApi)[];
 
 /** What the preload exposes as window.estela. */

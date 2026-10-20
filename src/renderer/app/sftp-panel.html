@@ -1,5 +1,7 @@
 @if (!pane()) {
   <div class="empty">Abre una sesión SSH para ver sus ficheros.</div>
+} @else if (pane()!.isLocal) {
+  <div class="empty">Terminal local: usa tu gestor de archivos. El panel SFTP es para sesiones SSH.</div>
 } @else if (!connected()) {
   <div class="empty">El panel activo no está conectado.</div>
 } @else {
@@ -26,7 +28,7 @@
   <div class="list" [class.dropping]="dropping()" (contextmenu)="backgroundMenu($event)"
        (dragover)="dragOver($event)" (dragleave)="dropping.set(false)" (drop)="drop($event)">
     @if (error()) {
-      <div class="error">{{ error() }}</div>
+      <div class="load-error">{{ error() }}</div>
     }
     @for (e of visibleEntries(); track e.path) {
       <div class="row" [class.sel]="selected().has(e.path)" draggable="true" [title]="e.name"

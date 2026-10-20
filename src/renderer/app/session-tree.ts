@@ -2,7 +2,8 @@ import { NgTemplateOutlet } from '@angular/common';
 import { Component, computed, inject, output, signal } from '@angular/core';
 import type { Folder, Session } from '../../shared/session';
 import { ContextMenu, type MenuState } from './context-menu';
-import { cleanError } from './estela';
+import { cleanError, estela } from './estela';
+import { NoticeService } from './notice.service';
 import { DEFAULT_FOLDER_ICON, DEFAULT_SESSION_ICON } from './constants';
 import { Icon } from './icon';
 import { IconPicker } from './icon-picker';
@@ -12,6 +13,8 @@ import { TabsService } from './tabs.service';
 export interface EditRequest {
   session?: Session;
   folderId: string | null;
+  /** Type for a new session. */
+  type?: 'ssh' | 'rdp';
 }
 
 const DRAG_TYPE = 'application/x-estela-item';
@@ -38,6 +41,7 @@ const DRAG_TYPE = 'application/x-estela-item';
 export class SessionTree {
   protected readonly sessions = inject(SessionsService);
   private readonly tabs = inject(TabsService);
+  private readonly notice = inject(NoticeService);
   readonly edit = output<EditRequest>();
 
   protected readonly query = signal('');
@@ -119,7 +123,7 @@ export class SessionTree {
   protected sessionMenu(e: MouseEvent, s: Session): void {
     this.openMenu(e, [
       { label: 'Conectar', action: () => this.connect(s) },
-      ...(this.tabs.active()
+      ...(this.tabs.activeTerm() && s.type === 'ssh'
         ? [
             { label: 'Abrir en panel a la derecha', action: () => this.tabs.split('row', s) },
             { label: 'Abrir en panel abajo', action: () => this.tabs.split('column', s) },
@@ -138,7 +142,8 @@ export class SessionTree {
 
   protected folderMenu(e: MouseEvent, f: Folder): void {
     this.openMenu(e, [
-      { label: 'Nueva sesión aquí…', action: () => this.edit.emit({ folderId: f.id }) },
+      { label: 'Nueva sesión SSH aquí…', action: () => this.edit.emit({ folderId: f.id }) },
+      { label: 'Nueva sesión RDP aquí…', action: () => this.edit.emit({ folderId: f.id, type: 'rdp' }) },
       { label: 'Nueva subcarpeta', action: () => void this.newFolder(f.id) },
       { label: 'Renombrar', action: () => this.renamingFolder.set(f.id) },
       { label: 'Cambiar icono…', action: () => this.iconTarget.set({ kind: 'folder', item: f }) },
@@ -154,10 +159,13 @@ export class SessionTree {
 
   protected rootMenu(e: MouseEvent): void {
     this.openMenu(e, [
-      { label: 'Nueva sesión…', action: () => this.edit.emit({ folderId: null }) },
+      { label: 'Nueva sesión SSH…', action: () => this.edit.emit({ folderId: null }) },
+      { label: 'Nueva sesión RDP…', action: () => this.edit.emit({ folderId: null, type: 'rdp' }) },
       { label: 'Nueva carpeta', action: () => void this.newFolder(null) },
       { label: 'Exportar sesiones…', action: () => void this.sessions.export() },
       { label: 'Importar sesiones…', action: () => void this.importSessions() },
+      { label: 'Importar ~/.ssh/config', action: () => void this.importOpenSsh('import:sshConfig', 'sesiones importadas de ~/.ssh/config') },
+      { label: 'Importar ~/.ssh/known_hosts', action: () => void this.importOpenSsh('import:knownHosts', 'claves de servidor importadas') },
     ]);
   }
 
@@ -165,6 +173,14 @@ export class SessionTree {
     try {
       const n = await this.sessions.import();
       if (n !== null) alert(`${n} sesiones importadas`);
+    } catch (err) {
+      alert(cleanError(err));
+    }
+  }
+
+  private async importOpenSsh(ch: 'import:sshConfig' | 'import:knownHosts', what: string): Promise<void> {
+    try {
+      this.notice.show(`${await estela.invoke(ch)} ${what}`);
     } catch (err) {
       alert(cleanError(err));
     }

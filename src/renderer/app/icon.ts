@@ -5,16 +5,18 @@ import { Component, input } from '@angular/core';
   selector: 'app-icon',
   template: `
     @if (icon().startsWith('data:')) {
-      <img [src]="icon()" alt="" />
+      <img [src]="icon()" alt="" [style.width.px]="size()" [style.height.px]="size()" />
     } @else {
       {{ icon() }}
     }
   `,
+  host: { '[style.width.px]': 'size()', '[style.font-size.px]': 'size() === 16 ? null : size() * 0.85' },
   styles: `
-    :host { display: inline-flex; width: 16px; justify-content: center; flex: none; }
-    img { width: 16px; height: 16px; object-fit: contain; }
+    :host { display: inline-flex; justify-content: center; align-items: center; flex: none; }
+    img { object-fit: contain; }
   `,
 })
 export class Icon {
   readonly icon = input.required<string>();
+  readonly size = input(16);
 }

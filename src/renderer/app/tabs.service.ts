@@ -1,10 +1,13 @@
 import { Injectable, computed, inject, signal, type WritableSignal } from '@angular/core';
 import { moveItemInArray } from '@angular/cdk/drag-drop';
 import type { Terminal } from '@xterm/xterm';
-import type { ConnStatus } from '../../shared/ipc';
-import type { Session } from '../../shared/session';
+import type { ConnStatus, LocalShell, RdpStatus } from '../../shared/ipc';
+import type { RdpSession, Session, SshSession } from '../../shared/session';
 import { estela } from './estela';
 import { SessionsService } from './sessions.service';
+
+/** What a pane connects to. */
+export type PaneTarget = { kind: 'ssh'; sessionId: string } | { kind: 'local'; shell: LocalShell };
 
 /** One connection shown in one terminal. */
 export class Pane {
@@ -25,7 +28,11 @@ export class Pane {
   /** The DOM host of its terminal view, for directional focus. */
   el?: HTMLElement;
 
-  constructor(readonly sessionId: string) {}
+  constructor(readonly target: PaneTarget) {}
+
+  get isLocal(): boolean {
+    return this.target.kind === 'local';
+  }
 }
 
 export type SplitDir = 'row' | 'column';
@@ -37,24 +44,58 @@ export class Split {
 }
 export type LayoutNode = Pane | Split;
 
-export class Tab {
+interface TabLook {
+  name: string;
+  color: string;
+  icon: string;
+}
+
+abstract class BaseTab {
   readonly id = crypto.randomUUID();
   readonly title: WritableSignal<string>;
   readonly color: WritableSignal<string>;
   readonly icon: string;
+
+  constructor(look: TabLook) {
+    this.title = signal(look.name);
+    this.color = signal(look.color);
+    this.icon = look.icon;
+  }
+}
+
+/** Terminal tab: a layout tree of panes. */
+export class Tab extends BaseTab {
+  readonly kind = 'term';
   readonly root: WritableSignal<LayoutNode>;
   readonly activePane: WritableSignal<Pane>;
   readonly panes = computed(() => leaves(this.root()));
+  readonly status = computed<ConnStatus>(() => this.activePane().status());
 
-  constructor(session: Session) {
-    this.title = signal(session.name);
-    this.color = signal(session.color);
-    this.icon = session.icon;
-    const pane = new Pane(session.id);
+  constructor(look: TabLook, target: PaneTarget) {
+    super(look);
+    const pane = new Pane(target);
     this.root = signal<LayoutNode>(pane);
     this.activePane = signal(pane);
   }
 }
+
+/** RDP tab: the session runs in an external FreeRDP window; the tab shows its state. */
+export class RdpTab extends BaseTab {
+  readonly kind = 'rdp';
+  readonly rdpId = signal<string | null>(null);
+  readonly state = signal<RdpStatus['state']>('starting');
+  readonly error = signal<string | undefined>(undefined);
+  readonly status = computed<ConnStatus>(() => {
+    const s = this.state();
+    return s === 'running' ? 'connected' : s === 'starting' ? 'connecting' : s === 'exited' ? 'closed' : 'error';
+  });
+
+  constructor(readonly session: RdpSession) {
+    super(session);
+  }
+}
+
+export type AnyTab = Tab | RdpTab;
 
 const leaves = (n: LayoutNode): Pane[] => (n instanceof Pane ? [n] : [...leaves(n.a), ...leaves(n.b)]);
 
@@ -80,11 +121,20 @@ export class TabsService {
   private readonly sessions = inject(SessionsService);
   private readonly byConn = new Map<string, Pane>();
 
-  readonly tabs = signal<Tab[]>([]);
+  private readonly byRdp = new Map<string, RdpTab>();
+
+  readonly tabs = signal<AnyTab[]>([]);
   readonly activeId = signal<string | null>(null);
   readonly active = computed(() => this.tabs().find((t) => t.id === this.activeId()));
+  /** Active terminal tab, if the visible tab is one. */
+  readonly activeTerm = computed(() => {
+    const t = this.active();
+    return t instanceof Tab ? t : undefined;
+  });
   /** The pane with the focus in the visible tab; the SFTP panel follows it. */
-  readonly activePane = computed(() => this.active()?.activePane());
+  readonly activePane = computed(() => this.activeTerm()?.activePane());
+  /** Every pane of every terminal tab (multi-exec chooses among them). */
+  readonly allPanes = computed(() => this.tabs().flatMap((t) => (t instanceof Tab ? t.panes() : [])));
 
   constructor() {
     estela.on('conn:data', ({ connId, data }) => this.byConn.get(connId)?.term?.write(data));
@@ -97,20 +147,49 @@ export class TabsService {
       if (status === 'closed' || status === 'error') this.byConn.delete(connId);
     });
     estela.on('conn:hook', ({ connId, installed, pid }) => this.byConn.get(connId)?.hook.set({ installed, pid }));
+    estela.on('rdp:status', ({ rdpId, state, error }) => {
+      const tab = this.byRdp.get(rdpId);
+      tab?.state.set(state);
+      tab?.error.set(error);
+    });
   }
 
   open(session: Session): void {
-    const tab = new Tab(session);
+    if (session.type === 'rdp') return this.openRdp(session);
+    this.add(new Tab(session, { kind: 'ssh', sessionId: session.id }));
+  }
+
+  openLocal(shell: LocalShell): void {
+    this.add(new Tab({ name: shell.name, color: '#abb2bf', icon: '💻' }, { kind: 'local', shell }));
+  }
+
+  private openRdp(session: RdpSession): void {
+    const tab = new RdpTab(session);
+    this.add(tab);
+    void this.launchRdp(tab);
+  }
+
+  async launchRdp(tab: RdpTab): Promise<void> {
+    const old = tab.rdpId();
+    if (old) this.byRdp.delete(old);
+    tab.state.set('starting');
+    tab.error.set(undefined);
+    const rdpId = await estela.invoke('rdp:launch', tab.session.id);
+    tab.rdpId.set(rdpId);
+    this.byRdp.set(rdpId, tab);
+  }
+
+  private add(tab: AnyTab): void {
     this.tabs.update((t) => [...t, tab]);
     this.activeId.set(tab.id);
   }
 
-  /** Splits the active pane of the active tab; the new pane connects to `session` (default: the same one). */
-  split(dir: SplitDir, session?: Session): void {
-    const tab = this.active();
+  /** Splits the active pane of the active tab; the new pane connects to `session` (default: the same target). */
+  split(dir: SplitDir, session?: SshSession): void {
+    const tab = this.activeTerm();
     if (!tab) return session ? this.open(session) : undefined;
     const current = tab.activePane();
-    const pane = new Pane(session?.id ?? current.sessionId);
+    const pane = new Pane(session ? { kind: 'ssh', sessionId: session.id } : current.target);
     tab.root.set(replace(tab.root(), current, new Split(dir, current, pane)));
     tab.activePane.set(pane);
   }
@@ -152,7 +231,11 @@ export class TabsService {
     this.disconnect(pane);
     pane.status.set('connecting');
     pane.hook.set(null);
-    const connId = await estela.invoke('conn:open', pane.sessionId, pane.cols, pane.rows);
+    const t = pane.target;
+    const connId =
+      t.kind === 'ssh'
+        ? await estela.invoke('conn:open', t.sessionId, pane.cols, pane.rows)
+        : await estela.invoke('conn:openLocal', t.shell.path, pane.cols, pane.rows);
     pane.connId = connId;
     this.byConn.set(connId, pane);
   }
@@ -172,8 +255,12 @@ export class TabsService {
     if (pane.connId) estela.send('conn:resize', pane.connId, cols, rows);
   }
 
-  close(tab: Tab): void {
-    for (const p of tab.panes()) this.dispose(p);
+  close(tab: AnyTab): void {
+    if (tab instanceof Tab) for (const p of tab.panes()) this.dispose(p);
+    else {
+      const id = tab.rdpId();
+      if (id && tab.state() !== 'exited' && tab.state() !== 'error') void estela.invoke('rdp:stop', id);
+    }
     const list = this.tabs();
     const i = list.indexOf(tab);
     const rest = list.filter((t) => t !== tab);
@@ -181,8 +268,11 @@ export class TabsService {
     if (this.activeId() === tab.id) this.activeId.set(rest[Math.min(i, rest.length - 1)]?.id ?? null);
   }
 
-  duplicate(tab: Tab): void {
-    const s = this.sessions.find(tab.activePane().sessionId);
+  duplicate(tab: AnyTab): void {
+    if (tab instanceof RdpTab) return this.open(tab.session);
+    const t = tab.activePane().target;
+    if (t.kind === 'local') return this.openLocal(t.shell);
+    const s = this.sessions.find(t.sessionId);
     if (s) this.open(s);
   }
 

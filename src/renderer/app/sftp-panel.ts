@@ -70,7 +70,7 @@ export class SftpPanel implements OnDestroy {
     // First connection of a pane without cwd info yet: start at the remote home.
     effect(() => {
       const pane = this.pane();
-      if (!pane || !this.visible() || !this.connected() || pane.sftpPath()) return;
+      if (!pane || pane.isLocal || !this.visible() || !this.connected() || pane.sftpPath()) return;
       const hook = pane.hook();
       if (hook === null && pane.follow()) return; // the hook is about to report the cwd
       void estela.invoke('sftp:home', pane.connId!).then((home) => {
@@ -81,7 +81,7 @@ export class SftpPanel implements OnDestroy {
     effect(() => {
       const pane = this.pane();
       const path = this.path();
-      if (this.visible() && pane && path && this.connected()) untracked(() => void this.load(pane, path));
+      if (this.visible() && pane && !pane.isLocal && path && this.connected()) untracked(() => void this.load(pane, path));
       else untracked(() => this.entries.set([]));
     });
     // Shells without OSC 7 but with a known pid: poll /proc while following.
@@ -255,6 +255,10 @@ export class SftpPanel implements OnDestroy {
     if (d.kind === 'chmod') void this.run(() => estela.invoke('sftp:chmod', conn, d.entry.path, Number(value)));
   }
 
+  protected async edit(entry: SftpEntry): Promise<void> {
+    await this.run(() => estela.invoke('editor:open', this.pane()!.connId!, entry.path), false);
+  }
+
   protected copyPath(p: string): void {
     void navigator.clipboard.writeText(p);
   }
@@ -269,6 +273,7 @@ export class SftpPanel implements OnDestroy {
     const single = items.length === 1;
     const menu: MenuItem[] = [
       ...(single && entry.isDir ? [{ label: 'Abrir', action: () => this.navigate(entry.path) }] : []),
+      ...(single && !entry.isDir ? [{ label: 'Editar', action: () => void this.edit(entry) }] : []),
       { label: 'Descargar', action: () => void this.download(items, null) },
       { label: 'Descargar en…', action: () => void this.downloadTo(items) },
       ...(single

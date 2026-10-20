@@ -23,16 +23,21 @@ export class SessionStore {
   saveSession(input: unknown): void {
     const s = validateSession(input);
     this.checkFolder(s.folderId);
-    if (s.jumpSessionId && this.jumpChainHas(s.jumpSessionId, s.id)) {
+    if (s.type === 'ssh' && s.jumpSessionId && this.jumpChainHas(s.jumpSessionId, s.id)) {
       throw new Error('Jump host chain would form a loop');
     }
+    const ref = s.type === 'ssh' ? s.jumpSessionId : s.viaSshSessionId;
+    if (ref && this.find(ref)?.type === 'rdp') throw new Error('Only SSH sessions can be used as jump hosts');
     upsert(this.data.sessions, s);
     this.persist();
   }
 
   deleteSession(id: string): void {
     this.data.sessions = this.data.sessions.filter((s) => s.id !== id);
-    for (const s of this.data.sessions) if (s.jumpSessionId === id) delete s.jumpSessionId;
+    for (const s of this.data.sessions) {
+      if (s.type === 'ssh' && s.jumpSessionId === id) delete s.jumpSessionId;
+      if (s.type === 'rdp' && s.viaSshSessionId === id) delete s.viaSshSessionId;
+    }
     this.persist();
   }
 
@@ -67,7 +72,8 @@ export class SessionStore {
     for (const f of this.data.folders) if (f.parentId && !folderIds.has(f.parentId)) f.parentId = null;
     for (const s of this.data.sessions) {
       if (s.folderId && !folderIds.has(s.folderId)) s.folderId = null;
-      if (s.jumpSessionId && !sessionIds.has(s.jumpSessionId)) delete s.jumpSessionId;
+      if (s.type === 'ssh' && s.jumpSessionId && !sessionIds.has(s.jumpSessionId)) delete s.jumpSessionId;
+      if (s.type === 'rdp' && s.viaSshSessionId && !sessionIds.has(s.viaSshSessionId)) delete s.viaSshSessionId;
     }
     this.persist();
     return incoming.sessions.length;
@@ -80,7 +86,11 @@ export class SessionStore {
 
   private jumpChainHas(start: string, target: string): boolean {
     const seen = new Set<string>();
-    for (let id: string | undefined = start; id && !seen.has(id); id = this.find(id)?.jumpSessionId) {
+    const next = (id: string) => {
+      const s = this.find(id);
+      return s?.type === 'ssh' ? s.jumpSessionId : undefined;
+    };
+    for (let id: string | undefined = start; id && !seen.has(id); id = next(id)) {
       if (id === target) return true;
       seen.add(id);
     }

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import type { AuthAnswer, EventApi, HostKeyAnswer } from '../shared/ipc';
+import type { AuthAnswer, ChoicePrompt, EventApi, HostKeyAnswer } from '../shared/ipc';
 
-type PromptChannel = 'prompt:hostkey' | 'prompt:auth';
+type PromptChannel = 'prompt:hostkey' | 'prompt:auth' | 'prompt:choice';
 type Emit = <K extends PromptChannel>(ch: K, payload: EventApi[K]) => void;
 
 /** Main-process questions to the user (host keys, passwords) awaiting a 'prompt:answer' from the renderer. */
@@ -19,6 +19,10 @@ export class Prompts {
       const a = raw as { value?: unknown; save?: unknown } | null;
       return a && typeof a.value === 'string' ? { value: a.value, save: a.save === true } : null;
     });
+  }
+
+  choice(p: ChoicePrompt): Promise<string | null> {
+    return this.ask('prompt:choice', p, (raw) => (p.choices.some((c) => c.value === raw) ? (raw as string) : null));
   }
 
   answer(promptId: string, raw: unknown): void {

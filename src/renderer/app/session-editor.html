@@ -1,6 +1,14 @@
 <dialog #dlg (cancel)="close()">
-  <h3>{{ request().session ? 'Editar sesión' : 'Nueva sesión SSH' }}</h3>
+  <h3>{{ request().session ? 'Editar sesión' : 'Nueva sesión' }}</h3>
   <form class="form" [formGroup]="form" (ngSubmit)="save()">
+    @if (!request().session) {
+      <label>Tipo</label>
+      <div class="checks">
+        <label><input type="radio" [checked]="type() === 'ssh'" (change)="setType('ssh')" /> SSH</label>
+        <label><input type="radio" [checked]="type() === 'rdp'" (change)="setType('rdp')" /> RDP (escritorio remoto)</label>
+      </div>
+    }
+
     <label for="name">Nombre</label>
     <input id="name" formControlName="name" autofocus />
 
@@ -13,19 +21,24 @@
     <label for="user">Usuario</label>
     <input id="user" formControlName="username" />
 
-    <label for="auth">Autenticación</label>
-    <select id="auth" formControlName="auth">
-      <option value="password">Contraseña</option>
-      <option value="key">Clave privada</option>
-      <option value="agent">Agente SSH</option>
-    </select>
+    @if (type() === 'ssh') {
+      <label for="auth">Autenticación</label>
+      <select id="auth" formControlName="auth">
+        <option value="password">Contraseña</option>
+        <option value="key">Clave privada</option>
+        <option value="agent">Agente SSH</option>
+      </select>
 
-    @if (auth() === 'key') {
-      <label for="key">Clave</label>
-      <div class="row">
-        <input id="key" formControlName="keyPath" placeholder="~/.ssh/id_ed25519" />
-        <button type="button" (click)="browseKey()">…</button>
-      </div>
+      @if (auth() === 'key') {
+        <label for="key">Clave</label>
+        <div class="row">
+          <input id="key" formControlName="keyPath" placeholder="~/.ssh/id_ed25519" />
+          <button type="button" (click)="browseKey()">…</button>
+        </div>
+      }
+    } @else {
+      <label for="domain">Dominio</label>
+      <input id="domain" formControlName="domain" placeholder="(opcional) CORP" />
     }
 
     @if (secretKind(); as kind) {
@@ -47,16 +60,42 @@
       }
     }
 
-    <label for="jump">Jump host</label>
-    <select id="jump" formControlName="jumpSessionId">
-      <option value="">(ninguno)</option>
-      @for (s of jumpCandidates(); track s.id) {
-        <option [value]="s.id">{{ s.name }} ({{ s.username }}&#64;{{ s.host }})</option>
-      }
-    </select>
+    @if (type() === 'ssh') {
+      <label for="jump">Jump host</label>
+      <select id="jump" formControlName="jumpSessionId">
+        <option value="">(ninguno)</option>
+        @for (s of sshSessions(); track s.id) {
+          <option [value]="s.id">{{ s.name }} ({{ s.username }}&#64;{{ s.host }})</option>
+        }
+      </select>
 
-    <label for="dir">Directorio inicial</label>
-    <input id="dir" formControlName="initialDir" placeholder="/var/log" />
+      <label for="dir">Directorio inicial</label>
+      <input id="dir" formControlName="initialDir" placeholder="/var/log" />
+    } @else {
+      <label>Pantalla</label>
+      <div class="row">
+        <label><input type="checkbox" formControlName="fullscreen" /> Completa</label>
+        @if (!fullscreen()) {
+          <input type="number" formControlName="width" style="width: 80px; flex: none" /> ×
+          <input type="number" formControlName="height" style="width: 80px; flex: none" />
+        }
+      </div>
+      <label>Opciones</label>
+      <div class="checks">
+        <label><input type="checkbox" formControlName="multimon" /> Multimonitor</label>
+        <label><input type="checkbox" formControlName="clipboard" /> Portapapeles</label>
+        <label><input type="checkbox" formControlName="drives" /> Compartir mi carpeta personal</label>
+      </div>
+      <label for="gw">RD Gateway</label>
+      <input id="gw" formControlName="gateway" placeholder="(opcional) gw.empresa.com:443" />
+      <label for="via">Conectar a través de</label>
+      <select id="via" formControlName="viaSshSessionId">
+        <option value="">(directo)</option>
+        @for (s of sshSessions(); track s.id) {
+          <option [value]="s.id">SSH: {{ s.name }} ({{ s.username }}&#64;{{ s.host }})</option>
+        }
+      </select>
+    }
 
     <label for="folder">Carpeta</label>
     <select id="folder" formControlName="folderId">
@@ -78,6 +117,31 @@
       <button type="button" class="current" (click)="pickingIcon.set(true)"><app-icon [icon]="form.controls.icon.value" /></button>
       <button type="button" (click)="pickingIcon.set(true)">Elegir…</button>
     </div>
+
+    @if (type() === 'ssh') {
+      <h4>Túneles</h4>
+      @for (t of tunnels(); track t.id; let i = $index) {
+        <div class="tunnel">
+          <select [value]="t.kind" (change)="updateTunnel(i, { kind: $any(val($event)) })" title="L: local → remoto · R: remoto → local · D: proxy SOCKS">
+            <option value="L">L</option>
+            <option value="R">R</option>
+            <option value="D">D</option>
+          </select>
+          <input [value]="t.bindHost" (change)="updateTunnel(i, { bindHost: val($event) })" title="Dirección de escucha" />
+          <input type="number" [value]="t.bindPort" (change)="updateTunnel(i, { bindPort: num($event) })" title="Puerto de escucha" />
+          <span>{{ t.kind === 'D' ? '' : '→' }}</span>
+          @if (t.kind !== 'D') {
+            <input [value]="t.destHost ?? ''" (change)="updateTunnel(i, { destHost: val($event) })" title="Destino" />
+            <input type="number" [value]="t.destPort ?? ''" (change)="updateTunnel(i, { destPort: num($event) })" title="Puerto destino" />
+          } @else {
+            <span></span><span></span>
+          }
+          <label title="Arrancar al abrir Estela SSH"><input type="checkbox" [checked]="t.autoStart" (change)="updateTunnel(i, { autoStart: !t.autoStart })" /> auto</label>
+          <button type="button" class="icon" title="Quitar" (click)="removeTunnel(i)">✕</button>
+        </div>
+      }
+      <div class="wide"><button type="button" (click)="addTunnel()">＋ Añadir túnel</button></div>
+    }
 
     @if (error()) {
       <div class="error">{{ error() }}</div>

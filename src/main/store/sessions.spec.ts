@@ -65,7 +65,7 @@ describe('SessionStore', () => {
     st.saveSession(ssh({ id: 'j1' }));
     st.saveSession(ssh({ id: 'j2', jumpSessionId: 'j1' }));
     st.deleteSession('j1');
-    expect(st.find('j2')?.jumpSessionId).toBeUndefined();
+    expect((st.find('j2') as SshSession).jumpSessionId).toBeUndefined();
   });
 
   it('round-trips export/import and drops dangling references', () => {
@@ -81,7 +81,7 @@ describe('SessionStore', () => {
     const broken = { version: 1, folders: [], sessions: [ssh({ id: 'x', folderId: 'gone', jumpSessionId: 'gone' })] };
     dst.import(broken);
     expect(dst.find('x')).toMatchObject({ folderId: null });
-    expect(dst.find('x')?.jumpSessionId).toBeUndefined();
+    expect((dst.find('x') as SshSession).jumpSessionId).toBeUndefined();
   });
 
   it('refuses malformed import files', () => {
@@ -110,5 +110,35 @@ describe('custom icons', () => {
     expect(() => st.saveFolder({ id: 'f', name: 'f', parentId: null, icon: 'data:text/html;base64,PGI+' })).toThrow(/icon/);
     const huge = `data:image/png;base64,${'A'.repeat(800_000)}`;
     expect(() => st.saveFolder({ id: 'f', name: 'f', parentId: null, icon: huge })).toThrow(/512 KB/);
+  });
+});
+
+describe('RDP sessions and tunnels', () => {
+  const file = () => path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'estela-')), 'sessions.json');
+  const rdp = { type: 'rdp', id: 'r1', name: 'win', folderId: null, color: '#fff', icon: '🪟', host: 'srv01', username: 'ana', screen: '1600x900' };
+
+  it('stores RDP sessions with defaults and validates the via-SSH reference', () => {
+    const st = new SessionStore(file());
+    st.saveSession(ssh({ id: 'bastion' }));
+    st.saveSession({ ...rdp, viaSshSessionId: 'bastion' });
+    expect(st.find('r1')).toMatchObject({ type: 'rdp', port: 3389, clipboard: true, multimon: false, viaSshSessionId: 'bastion' });
+    expect(() => st.saveSession(ssh({ id: 's9', jumpSessionId: 'r1' }))).toThrow(/Only SSH/);
+    st.deleteSession('bastion');
+    expect(st.find('r1')).not.toHaveProperty('viaSshSessionId');
+  });
+
+  it('rejects RDP fields that could smuggle FreeRDP options', () => {
+    const st = new SessionStore(file());
+    expect(() => st.saveSession({ ...rdp, host: 'srv /drive:x,/' })).toThrow(/host/);
+    expect(() => st.saveSession({ ...rdp, screen: '1600x900 /f' })).toThrow(/screen/);
+  });
+
+  it('validates tunnels', () => {
+    const st = new SessionStore(file());
+    st.saveSession(ssh({ tunnels: [{ id: 't', kind: 'L', bindHost: '127.0.0.1', bindPort: 8080, destHost: 'db', destPort: 5432, autoStart: true }] }));
+    expect((st.find('s1') as SshSession).tunnels?.[0]).toMatchObject({ kind: 'L', bindPort: 8080 });
+    expect(() => st.saveSession(ssh({ tunnels: [{ id: 't', kind: 'L', bindPort: 8080, autoStart: false } as never] }))).toThrow(/destHost/);
+    st.saveSession(ssh({ tunnels: [{ id: 'd', kind: 'D', bindHost: '127.0.0.1', bindPort: 1080, autoStart: false }] }));
+    expect((st.find('s1') as SshSession).tunnels?.[0]).not.toHaveProperty('destHost');
   });
 });

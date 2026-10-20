@@ -3,7 +3,7 @@
 // against real software without Docker. Also runnable by hand: `npm run test-server`.
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
-import type net from 'node:net';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { Server, utils, type ServerChannel } from 'ssh2';
@@ -40,7 +40,27 @@ export function startRealServer(port = 0, shell = '/bin/bash', hostKey = utils.g
     client.on('authentication', (ctx) =>
       ctx.method === 'password' && ctx.password === 'secret' ? ctx.accept() : ctx.reject(['password']),
     );
-    client.on('ready', () =>
+    client.on('ready', () => {
+      // Port forwarding, so tunnels and jump hosts can be tested too.
+      client.on('tcpip', (accept, reject, info) => {
+        const sock = net.connect(info.destPort, info.destIP, () => {
+          const ch = accept();
+          ch.pipe(sock).pipe(ch);
+        });
+        sock.on('error', () => reject());
+      });
+      client.on('request', (accept, reject, name, info) => {
+        if (name !== 'tcpip-forward') return reject?.();
+        const fwd = info as { bindAddr: string; bindPort: number };
+        // Like OpenSSH, announce the real port (it differs from the requested one when that was 0).
+        const srv = net.createServer((sock) =>
+          client.forwardOut(fwd.bindAddr, (srv.address() as net.AddressInfo).port, sock.remoteAddress ?? '', sock.remotePort ?? 0, (err, ch) =>
+            err ? sock.destroy() : sock.pipe(ch).pipe(sock),
+          ),
+        );
+        srv.listen(fwd.bindPort, fwd.bindAddr, () => accept?.((srv.address() as net.AddressInfo).port));
+        client.once('close', () => srv.close());
+      });
       client.on('session', (accept) => {
         const s = accept();
         s.on('pty', (ok) => ok?.());
@@ -50,8 +70,8 @@ export function startRealServer(port = 0, shell = '/bin/bash', hostKey = utils.g
         (s as unknown as NodeJS.EventEmitter).on('subsystem', (ok: () => ServerChannel, rej: () => void, info: { name: string }) =>
           info.name === 'sftp' && SFTP_SERVER ? pipe(ok(), SFTP_SERVER, []) : rej(),
         );
-      }),
-    );
+      });
+    });
     client.on('error', () => {});
   });
   return new Promise((resolve) =>

@@ -6,6 +6,17 @@ const QUIET_MS = 300; // output silence that means "the prompt is up"
 const MARKER_TIMEOUT_MS = 3000;
 
 const osc7 = (line: string): HookScript => ({ line, osc7: true });
+
+/** Prompt hooks that emit OSC 7; shared by the remote one-liner and the local rc files. */
+export const OSC7_HOOK = {
+  bash:
+    `__estela_osc7() { printf '\\033]7;file://%s%s\\033\\\\' "\${HOSTNAME-}" "$PWD"; };` +
+    ` case ";\${PROMPT_COMMAND-};" in *";__estela_osc7;"*) ;; *) PROMPT_COMMAND="__estela_osc7\${PROMPT_COMMAND:+;$PROMPT_COMMAND}";; esac;`,
+  zsh:
+    `__estela_osc7() { printf '\\033]7;file://%s%s\\033\\\\' "\${HOST-}" "$PWD" };` +
+    ` (( \${precmd_functions[(I)__estela_osc7]} )) || precmd_functions+=(__estela_osc7);`,
+  fish: `function __estela_osc7 --on-event fish_prompt; printf '\\e]7;file://%s%s\\e\\\\' "$hostname" "$PWD"; end;`,
+};
 const posixQuote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 const reportPid = (pid: string) => `printf '\\033]777;estela;%s\\033\\\\' ${pid}`;
 
@@ -26,8 +37,7 @@ export function hookScript(shellPath: string, initialDir?: string): HookScript |
   switch (shell) {
     case 'bash':
       return osc7(
-        ` __estela_osc7() { printf '\\033]7;file://%s%s\\033\\\\' "\${HOSTNAME-}" "$PWD"; };` +
-        ` case ";\${PROMPT_COMMAND-};" in *";__estela_osc7;"*) ;; *) PROMPT_COMMAND="__estela_osc7\${PROMPT_COMMAND:+;$PROMPT_COMMAND}";; esac;` +
+        ` ${OSC7_HOOK.bash}` +
         // Only delete the last history entry if it is this very line (ignorespace may have skipped it).
         ` [[ $(HISTTIMEFORMAT= history 1) == *__estela_osc7* ]] && { set -- $(HISTTIMEFORMAT= history 1); history -d "$1"; }; set --;` +
         ` ${reportPid('"$$"')}${cd}`
@@ -35,13 +45,12 @@ export function hookScript(shellPath: string, initialDir?: string): HookScript |
     case 'zsh':
       // ponytail: zsh keeps this line in history unless HIST_IGNORE_SPACE is set; zsh has no history delete builtin.
       return osc7(
-        ` __estela_osc7() { printf '\\033]7;file://%s%s\\033\\\\' "\${HOST-}" "$PWD" };` +
-        ` (( \${precmd_functions[(I)__estela_osc7]} )) || precmd_functions+=(__estela_osc7);` +
+        ` ${OSC7_HOOK.zsh}` +
         ` ${reportPid('"$$"')}${cd}`
       );
     case 'fish':
       return osc7(
-        ` function __estela_osc7 --on-event fish_prompt; printf '\\e]7;file://%s%s\\e\\\\' "$hostname" "$PWD"; end;` +
+        ` ${OSC7_HOOK.fish}` +
         ` printf '\\e]777;estela;%s\\e\\\\' $fish_pid${cd}`
       );
     case 'sh':

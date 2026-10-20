@@ -39,3 +39,19 @@ describe('KnownHosts', () => {
     expect(fingerprint(k)).toMatch(/^SHA256:[A-Za-z0-9+/]{43}$/);
   });
 });
+
+describe('KnownHosts hashed entries and import', () => {
+  it('matches HashKnownHosts entries and imports without duplicates', async () => {
+    const { createHmac, randomBytes } = await import('node:crypto');
+    const f = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'estela-')), 'known_hosts');
+    const kh = new KnownHosts(f);
+    const k = blob().getPublicSSH();
+    const salt = randomBytes(20);
+    const hashed = `|1|${salt.toString('base64')}|${createHmac('sha1', salt).update('[srv]:2222').digest('base64')}`;
+    const text = `${hashed} ${keyType(k)} ${k.toString('base64')}\n@cert-authority *.corp ssh-rsa AAAA\n`;
+    expect(kh.importFrom(text)).toBe(1);
+    expect(kh.importFrom(text)).toBe(0);
+    expect(kh.check('srv', 2222, k).result).toBe('match');
+    expect(kh.check('srv', 22, k).result).toBe('unknown');
+  });
+});

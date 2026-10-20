@@ -3,7 +3,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { app, nativeImage, type BrowserWindow } from 'electron';
 import type { EventApi, InvokeApi, SendApi, TransferDirection } from '../shared/ipc';
-import type { SshShell } from './ssh/connection';
+import type { LocalPty } from './local/pty';
+import { SshShell } from './ssh/connection';
 import { call, exists, list, mkdirp, remove, transferFile, walk } from './ssh/sftp';
 import { TransferQueue, type TransferRunner } from './ssh/transfers';
 
@@ -16,7 +17,7 @@ type Emit = <K extends keyof EventApi>(ch: K, payload: EventApi[K]) => void;
 
 export interface SftpIpcDeps {
   win: BrowserWindow;
-  shells: Map<string, SshShell>;
+  shells: Map<string, SshShell | LocalPty>;
   handle: Handle;
   on: On;
   emit: Emit;
@@ -36,9 +37,14 @@ function remoteItem(x: string): string {
 }
 
 export function registerSftpIpc({ win, shells, handle, on, emit, str }: SftpIpcDeps): { dispose(): void; connectionClosed(connId: string): void } {
-  const shell = (id: unknown) => {
+  const conn = (id: unknown) => {
     const s = shells.get(str(id));
     if (!s) throw new Error('La conexión ya no está abierta');
+    return s;
+  };
+  const shell = (id: unknown) => {
+    const s = conn(id);
+    if (!(s instanceof SshShell)) throw new Error('SFTP no disponible en terminales locales');
     return s;
   };
   const sftpOf = (id: unknown) => shell(id).sftp();
@@ -58,7 +64,7 @@ export function registerSftpIpc({ win, shells, handle, on, emit, str }: SftpIpcD
   };
   const queue = new TransferQueue(runner, (s) => emit('transfer:update', s));
 
-  handle('conn:cwd', (id) => shell(id).cwd());
+  handle('conn:cwd', (id) => conn(id).cwd());
   on('conn:retryHook', (id) => shells.get(str(id))?.retryHook());
 
   handle('sftp:home', async (id) => {

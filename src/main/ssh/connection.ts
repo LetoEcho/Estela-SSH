@@ -4,14 +4,14 @@ import path from 'node:path';
 import type { Duplex } from 'node:stream';
 import { Client, utils, type AnyAuthMethod, type AuthenticationType, type ClientChannel, type Prompt, type SFTPWrapper } from 'ssh2';
 import type { AuthAnswer, AuthPrompt, ConnStatus, HostKeyAnswer, HostKeyPrompt } from '../../shared/ipc';
-import type { SecretKind, SshSession } from '../../shared/session';
+import type { SecretKind, Session, SshSession } from '../../shared/session';
 import { expandHome } from '../paths';
 import { fingerprint, keyType, type KnownHosts } from '../store/known-hosts';
 import type { SecretStore } from '../store/secrets';
 import { ShellHook, hookScript } from './shell-hook';
 
 export interface ConnectionDeps {
-  findSession(id: string): SshSession | undefined;
+  findSession(id: string): Session | undefined;
   secrets: Pick<SecretStore, 'get' | 'set' | 'canStore'>;
   knownHosts: Pick<KnownHosts, 'check' | 'add'>;
   agent(): string | undefined;
@@ -30,59 +30,36 @@ const MAX_JUMPS = 5;
 const MAX_PASSWORD_TRIES = 3;
 const EXEC_TIMEOUT_MS = 5_000;
 
-/** One interactive shell = one pane. Owns the target client plus any jump-host clients. */
-export class SshShell {
+/**
+ * An authenticated SSH connection to a session, through its chain of jump hosts.
+ * Used by interactive shells, tunnels and RDP-over-SSH.
+ */
+export class SshConnection {
   private clients: Client[] = [];
   private target?: Client;
-  private stream?: ClientChannel;
-  private hook?: ShellHook;
   private sftpChannel?: Promise<SFTPWrapper>;
   private closed = false;
-  private lastError?: string;
+  /** Last error reported by the target client (e.g. keepalive timeout). */
+  lastError?: string;
 
-  constructor(private readonly deps: ConnectionDeps, private readonly events: ShellEvents) {}
+  constructor(private readonly deps: ConnectionDeps) {}
 
-  async open(sessionId: string, cols: number, rows: number): Promise<void> {
-    this.events.status('connecting');
-    try {
-      const session = this.session(sessionId);
-      const client = (this.target = await this.connectChain(session, 0));
-      // Ask for the login shell in parallel with opening it; the hook needs it ~300 ms later.
-      const shellPath = this.exec('echo "$SHELL"').catch(() => '');
-      const stream = await new Promise<ClientChannel>((resolve, reject) =>
-        client.shell({ term: 'xterm-256color', cols, rows }, (err, s) => (err ? reject(err) : resolve(s))),
-      );
-      if (this.closed) return void stream.close();
-      this.stream = stream;
-      stream.setEncoding('utf8');
-      stream.stderr.setEncoding('utf8');
-      const hook = (this.hook = new ShellHook(
-        shellPath.then((sh) => hookScript(sh, session.initialDir)),
-        (s) => stream.write(s),
-        (d) => this.events.data(d),
-        (r) => this.events.hook(r),
-      ));
-      stream.on('data', (d: string) => hook.data(d));
-      stream.stderr.on('data', (d: string) => this.events.data(d));
-      stream.on('close', () => {
-        if (!this.closed) this.events.status(this.lastError ? 'error' : 'closed', this.lastError);
-        this.close();
-      });
-      this.events.status('connected');
-    } catch (e) {
-      const wasClosed = this.closed;
-      this.close();
-      if (!wasClosed) this.events.status('error', message(e));
-    }
+  get isClosed(): boolean {
+    return this.closed;
   }
 
-  write(data: string): void {
-    this.hook?.userInput();
-    this.stream?.write(data);
+  async connect(sessionId: string): Promise<Client> {
+    const client = await this.connectChain(this.session(sessionId), 0);
+    if (this.closed) throw new Error('Connection closed');
+    this.target = client;
+    return client;
   }
 
-  retryHook(): void {
-    this.hook?.retry();
+  /** Called once when the target connection goes away (not when we close it ourselves). */
+  onDrop(cb: () => void): void {
+    this.target?.once('close', () => {
+      if (!this.closed) cb();
+    });
   }
 
   /** Shared SFTP channel for listings and small operations. */
@@ -102,15 +79,8 @@ export class SshShell {
     return new Promise((resolve, reject) => c.sftp((err, s) => (err ? reject(err) : resolve(s))));
   }
 
-  /** The shell's cwd via /proc, for shells without the OSC 7 hook. Null when unknown. */
-  async cwd(): Promise<string | null> {
-    if (!this.hook?.pid) return null;
-    const out = await this.exec(`readlink /proc/${this.hook.pid}/cwd`).catch(() => '');
-    return out.startsWith('/') ? out.trim() : null;
-  }
-
   /** Runs a command on a separate channel and returns its stdout. */
-  private exec(cmd: string): Promise<string> {
+  exec(cmd: string): Promise<string> {
     const c = this.target;
     if (!c) return Promise.reject(new Error('Not connected'));
     return new Promise((resolve, reject) => {
@@ -129,22 +99,17 @@ export class SshShell {
     });
   }
 
-  resize(cols: number, rows: number): void {
-    this.stream?.setWindow(rows, cols, 0, 0);
-  }
-
   close(): void {
     this.closed = true;
-    this.hook?.dispose();
-    this.stream?.close();
     for (const c of this.clients) c.end();
     this.clients = [];
     this.target = undefined;
   }
 
-  private session(id: string): SshSession {
+  session(id: string): SshSession {
     const s = this.deps.findSession(id);
     if (!s) throw new Error(`Session ${id} not found`);
+    if (s.type !== 'ssh') throw new Error(`Session ${s.name} is not an SSH session`);
     return s;
   }
 
@@ -212,6 +177,83 @@ export class SshShell {
     if (answer === 'save') this.deps.knownHosts.add(s.host, s.port, key);
     if (answer === 'reject') throw new Error('Host key rejected');
     return true;
+  }
+}
+
+/** One interactive shell = one pane. */
+export class SshShell {
+  readonly conn: SshConnection;
+  private stream?: ClientChannel;
+  private hook?: ShellHook;
+  private closed = false;
+
+  constructor(deps: ConnectionDeps, private readonly events: ShellEvents) {
+    this.conn = new SshConnection(deps);
+  }
+
+  async open(sessionId: string, cols: number, rows: number): Promise<void> {
+    this.events.status('connecting');
+    try {
+      const client = await this.conn.connect(sessionId);
+      const session = this.conn.session(sessionId);
+      // Ask for the login shell in parallel with opening it; the hook needs it ~300 ms later.
+      const shellPath = this.conn.exec('echo "$SHELL"').catch(() => '');
+      const stream = await new Promise<ClientChannel>((resolve, reject) =>
+        client.shell({ term: 'xterm-256color', cols, rows }, (err, s) => (err ? reject(err) : resolve(s))),
+      );
+      if (this.closed) return void stream.close();
+      this.stream = stream;
+      stream.setEncoding('utf8');
+      stream.stderr.setEncoding('utf8');
+      const hook = (this.hook = new ShellHook(
+        shellPath.then((sh) => hookScript(sh, session.initialDir)),
+        (s) => stream.write(s),
+        (d) => this.events.data(d),
+        (r) => this.events.hook(r),
+      ));
+      stream.on('data', (d: string) => hook.data(d));
+      stream.stderr.on('data', (d: string) => this.events.data(d));
+      stream.on('close', () => {
+        const err = this.conn.lastError;
+        if (!this.closed) this.events.status(err ? 'error' : 'closed', err);
+        this.close();
+      });
+      this.events.status('connected');
+    } catch (e) {
+      const wasClosed = this.closed;
+      this.close();
+      if (!wasClosed) this.events.status('error', message(e));
+    }
+  }
+
+  write(data: string): void {
+    this.hook?.userInput();
+    this.stream?.write(data);
+  }
+
+  resize(cols: number, rows: number): void {
+    this.stream?.setWindow(rows, cols, 0, 0);
+  }
+
+  retryHook(): void {
+    this.hook?.retry();
+  }
+
+  sftp = () => this.conn.sftp();
+  openSftp = () => this.conn.openSftp();
+
+  /** The shell's cwd via /proc, for shells without the OSC 7 hook. Null when unknown. */
+  async cwd(): Promise<string | null> {
+    if (!this.hook?.pid) return null;
+    const out = await this.conn.exec(`readlink /proc/${this.hook.pid}/cwd`).catch(() => '');
+    return out.startsWith('/') ? out.trim() : null;
+  }
+
+  close(): void {
+    this.closed = true;
+    this.hook?.dispose();
+    this.stream?.close();
+    this.conn.close();
   }
 }
 
