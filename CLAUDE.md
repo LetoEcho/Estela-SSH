@@ -100,6 +100,13 @@ test/          integration tests: in-process ssh2 servers; real-server.ts wraps 
 2. ✅ Split panes + SFTP panel following the terminal's cwd (OSC 7 hook, /proc fallback), transfers, chmod, D&D.
 3. Multi-exec, tunnels, local terminal (node-pty, OSC 7 via rcfile), remote file editing (Monaco/external editor),
    RDP phase A, import ~/.ssh/config & known_hosts.
+   Phase 3 status: only deps added (node-pty 1.1.0 with install script allowed; monaco-editor 0.57 whose `min/` is
+   26 MB and has no AMD loader, so it must be bundled as ESM). Planned design: Pane target ssh|local; LocalPty with
+   OSC 7 via bash --rcfile / zsh ZDOTDIR / fish --init-command; multi-exec in renderer (broadcast onData to selected
+   panes); TunnelManager (L via forwardOut, R via forwardIn, D via own SOCKS5) reusing SshShell's connect chain;
+   RDP tab kind launching FreeRDP (password typed on its "Password:" prompt, cert prompt forwarded to our dialog,
+   ephemeral L tunnel for "via SSH"), focus with wmctrl/xdotool; editor in a second BrowserWindow;
+   ~/.ssh/config + hashed known_hosts import. FreeRDP is not installed yet (`sudo apt install freerdp3-x11`).
 4. Polish (keepalive/reconnect settings, themes, fonts, logging) and packaging.
 5. Optional: X11 forwarding, embedded RDP.
 Then: Windows platform layer + Windows CI/packages.

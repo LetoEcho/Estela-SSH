@@ -13,6 +13,7 @@
   "private": true,
   "packageManager": "npm@11.19.0",
   "dependencies": {
+    "node-pty": "^1.1.0",
     "ssh2": "^1.17.0"
   },
   "devDependencies": {
@@ -35,6 +36,7 @@
     "electron": "^44.9.1",
     "electron-builder": "^26.15.3",
     "esbuild": "^0.28.2",
+    "monaco-editor": "^0.57.0",
     "prettier": "^3.8.1",
     "rxjs": "~7.8.0",
     "tslib": "^2.3.0",
@@ -48,7 +50,8 @@
     "ssh2": false,
     "@parcel/watcher": false,
     "lmdb": false,
-    "msgpackr-extract": false
+    "msgpackr-extract": false,
+    "node-pty@1.1.0": true
   },
   "description": "SSH and RDP desktop client",
   "author": "LetoEcho <172483139+LetoEcho@users.noreply.github.com>",
