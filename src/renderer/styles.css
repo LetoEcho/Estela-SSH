@@ -1,0 +1,33 @@
+:root {
+  --bg: #1e1f22;
+  --bg-2: #2b2d31;
+  --bg-3: #383a40;
+  --fg: #dcddde;
+  --fg-dim: #949ba4;
+  --accent: #4a90d9;
+  --danger: #e06c75;
+  --ok: #50b86c;
+  --warn: #e5a50a;
+  --border: #3f4147;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font: 13px system-ui, sans-serif; overflow: hidden; }
+button { background: var(--bg-3); color: var(--fg); border: 1px solid var(--border); border-radius: 4px; padding: 4px 10px; cursor: pointer; font: inherit; }
+button:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+button.icon { background: none; border: none; padding: 2px 6px; }
+input, select { background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 4px; padding: 4px 6px; font: inherit; }
+input:focus, select:focus { outline: 1px solid var(--accent); }
+dialog { background: var(--bg-2); color: var(--fg); border: 1px solid var(--border); border-radius: 8px; padding: 16px; min-width: 380px; }
+dialog::backdrop { background: rgb(0 0 0 / 0.5); }
+dialog h3 { margin: 0 0 12px; }
+.form { display: grid; grid-template-columns: max-content 1fr; gap: 8px 12px; align-items: center; }
+.actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; }
+.dot.connected { background: var(--ok); }
+.dot.connecting { background: var(--warn); }
+.dot.closed { background: var(--fg-dim); }
+.dot.error { background: var(--danger); }
+code { font-family: monospace; word-break: break-all; }

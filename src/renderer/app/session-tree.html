@@ -1,0 +1,60 @@
+<div class="toolbar">
+  <input placeholder="Buscar…" [value]="query()" (input)="query.set($any($event.target).value)" />
+  <button class="icon" title="Nueva sesión" (click)="edit.emit({ folderId: null })">＋</button>
+  <button class="icon" title="Nueva carpeta" (click)="newFolder(null)">🗀</button>
+  <button class="icon" title="Más opciones" (click)="rootMenu($event)">⋯</button>
+</div>
+
+<div class="tree" [class.drop]="dropTarget() === null" (dragover)="dragOver($event, null)"
+     (dragleave)="dropTarget.set(undefined)" (drop)="drop($event, null)" (contextmenu)="rootMenu($event)">
+  @if (query().trim()) {
+    @for (s of results(); track s.id) {
+      <ng-container *ngTemplateOutlet="sessionRow; context: { $implicit: s, depth: 0 }" />
+    } @empty {
+      <div class="empty">Sin resultados</div>
+    }
+  } @else {
+    <ng-container *ngTemplateOutlet="children; context: { $implicit: sessions.tree(), depth: 0 }" />
+    @if (!sessions.data().sessions.length) {
+      <div class="empty">Sin sesiones todavía. Pulsa ＋ para crear una.</div>
+    }
+  }
+</div>
+
+<ng-template #children let-node let-depth="depth">
+  @for (f of node.folders; track f.folder.id) {
+    <div class="row" [class.drop]="dropTarget() === f.folder.id" [style.padding-left.px]="8 + depth * 14"
+         draggable="true" (dragstart)="dragStart($event, 'folder', f.folder.id)"
+         (dragover)="dragOver($event, f.folder.id)" (drop)="drop($event, f.folder.id)"
+         (click)="toggle(f.folder.id)" (contextmenu)="folderMenu($event, f.folder)">
+      <span class="chev">{{ collapsed().has(f.folder.id) ? '▸' : '▾' }}</span>
+      <app-icon [icon]="f.folder.icon || '🗀'" />
+      @if (renamingFolder() === f.folder.id) {
+        <input #n [value]="f.folder.name" (click)="$event.stopPropagation()" (keydown.enter)="renameFolder(f.folder, n.value)"
+               (keydown.escape)="renamingFolder.set(null)" (blur)="renameFolder(f.folder, n.value)" />
+      } @else {
+        <span>{{ f.folder.name }}</span>
+      }
+    </div>
+    @if (!collapsed().has(f.folder.id)) {
+      <ng-container *ngTemplateOutlet="children; context: { $implicit: f, depth: depth + 1 }" />
+    }
+  }
+  @for (s of node.sessions; track s.id) {
+    <ng-container *ngTemplateOutlet="sessionRow; context: { $implicit: s, depth: depth }" />
+  }
+</ng-template>
+
+<ng-template #sessionRow let-s let-depth="depth">
+  <div class="row" [style.padding-left.px]="22 + depth * 14" draggable="true" [title]="s.username + '@' + s.host + ':' + s.port"
+       (dragstart)="dragStart($event, 'session', s.id)" (dblclick)="connect(s)" (contextmenu)="sessionMenu($event, s)">
+    <span class="swatch" [style.background]="s.color"></span>
+    <app-icon [icon]="s.icon" />
+    <span>{{ s.name }}</span>
+    <span class="host">{{ s.username }}&#64;{{ s.host }}</span>
+  </div>
+</ng-template>
+
+@if (menu(); as m) {
+  <app-context-menu [state]="m" (closed)="menu.set(null)" />
+}

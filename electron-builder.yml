@@ -1,0 +1,16 @@
+appId: io.github.estela.ssh
+productName: Estela SSH
+artifactName: ${name}-${version}-${arch}.${ext}
+copyright: Personal use
+directories:
+  output: release
+files:
+  - dist/**/*
+  - '!dist/**/*.map'
+  - package.json
+linux:
+  target: [AppImage, deb, rpm]
+  category: Network
+  executableName: estela-ssh
+  synopsis: SSH client with sessions, tabs and SFTP
+  maintainer: LetoEcho <172483139+LetoEcho@users.noreply.github.com>
