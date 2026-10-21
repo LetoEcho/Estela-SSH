@@ -145,7 +145,6 @@ test/          integration tests: in-process ssh2 servers; real-server.ts wraps 
   zsh and fish hooks are not covered locally (not installed on the dev machine).
 - Manual smoke tests can drive the app via `--remote-debugging-port` + CDP; use `ESTELA_USER_DATA` to avoid touching
   the real `~/.config/estela-ssh`. Synthetic DOM key events double characters in xterm; use CDP `Input.dispatchKeyEvent`.
-- `package.json` `homepage` is a placeholder (deb packaging requires one); replace it when a repo URL exists.
 
 ## Roadmap
 

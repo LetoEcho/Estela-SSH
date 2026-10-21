@@ -20,7 +20,7 @@ Talk to the user in Spanish. Code, comments and commit messages in English. UI t
 1. Install Git for Windows and Node.js 24 (ships npm 11, needed for `allowScripts` in package.json).
 2. Clone the repo. Keep LF line endings to avoid spurious diffs: `git config core.autocrlf false` before cloning,
    or set it in the clone and run `git checkout .`.
-3. Set the repo-local git identity used so far: `git config user.name "emr"` and
+3. Set the repo-local git identity used so far: `git config user.name "LetoEcho"` and
    `git config user.email "172483139+LetoEcho@users.noreply.github.com"`.
 4. `npm ci`. node-pty uses its bundled `prebuilds/win32-x64` (no Visual Studio needed). ssh2's optional native
    parts are denied in `allowScripts` on purpose (ssh2 works in pure JS).
@@ -98,7 +98,6 @@ Ordered by risk. Fix what fails, add a unit test for any non-visual logic that c
 
 ## Before/after pushing to GitHub
 
-- Replace the placeholder `homepage` in `package.json` (`https://example.invalid/estela-ssh`) with the repo URL.
 - Nothing else in the repo holds secrets: `release/`, `dist/` and `node_modules/` are git-ignored. Check
   `git status` before the first push anyway.
 - Ask the user before pushing, creating releases or changing repo settings.

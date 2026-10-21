@@ -57,5 +57,5 @@
   "description": "SSH and RDP desktop client",
   "author": "LetoEcho <172483139+LetoEcho@users.noreply.github.com>",
   "main": "dist/main/main.js",
-  "homepage": "https://example.invalid/estela-ssh"
+  "homepage": "https://github.com/LetoEcho/Estela-SSH"
 }
