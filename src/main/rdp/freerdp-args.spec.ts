@@ -24,6 +24,13 @@ describe('freerdpArgs', () => {
     expect(args).not.toContain('/f');
   });
 
+  it('passes a domain-qualified user name as one argument and adds no second domain', () => {
+    // spawn() gets an array, so the backslash (and anything else) stays inside its own argv token.
+    const args = freerdpArgs(s({ username: 'DOMINIO\\ana', domain: 'CORP' }), { host: 'srv01.corp', port: 3389 });
+    expect(args).toContain('/u:DOMINIO\\ana');
+    expect(args.some((a) => a.startsWith('/d:'))).toBe(false);
+  });
+
   it('targets the local tunnel and pins the trusted certificate', () => {
     const fp = 'a6:ee:0b:74:6d:89:90:56:ef:21:e9:36:bb:6c:34:71:73:bb:2c:45:9c:26:ea:81:0e:bf:4f:8b:8d:2e:1b:26';
     const args = freerdpArgs(s(), { host: '127.0.0.1', port: 50123, thumbprint: fp });

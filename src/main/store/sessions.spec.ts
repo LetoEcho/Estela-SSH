@@ -130,7 +130,19 @@ describe('RDP sessions and tunnels', () => {
   it('rejects RDP fields that could smuggle FreeRDP options', () => {
     const st = new SessionStore(file());
     expect(() => st.saveSession({ ...rdp, host: 'srv /drive:x,/' })).toThrow(/host/);
+    expect(() => st.saveSession({ ...rdp, gateway: 'gw /f' })).toThrow(/gateway/);
     expect(() => st.saveSession({ ...rdp, screen: '1600x900 /f' })).toThrow(/screen/);
+  });
+
+  it('accepts a domain-qualified user name but never a new line', () => {
+    const st = new SessionStore(file());
+    st.saveSession({ ...rdp, username: 'DOMINIO\\ana' });
+    expect(st.find('r1')).toMatchObject({ username: 'DOMINIO\\ana' });
+    st.saveSession({ ...rdp, username: 'ana@corp.local', domain: 'CORP' });
+    expect(st.find('r1')).toMatchObject({ username: 'ana@corp.local', domain: 'CORP' });
+    // A line break would add a directive to the .rdp file and break the credential's stdin protocol.
+    expect(() => st.saveSession({ ...rdp, username: 'ana\r\nfull address:s:evil' })).toThrow(/username/);
+    expect(() => st.saveSession({ ...rdp, domain: 'CORP\tx' })).toThrow(/domain/);
   });
 
   it('validates tunnels', () => {

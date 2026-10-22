@@ -13,7 +13,8 @@ export interface FreerdpTarget {
  */
 export function freerdpArgs(s: RdpSession, target: FreerdpTarget): string[] {
   const args = [`/v:${target.host}:${target.port}`, `/u:${s.username}`];
-  if (s.domain) args.push(`/d:${s.domain}`);
+  // "DOMINIO\usuario" already names its domain; adding /d: on top of it would name a second one.
+  if (s.domain && !s.username.includes('\\')) args.push(`/d:${s.domain}`);
   args.push('/from-stdin:force', `/t:${s.name}`);
   args.push(s.screen === 'fullscreen' ? '/f' : `/size:${s.screen}`);
   if (s.multimon) args.push('/multimon');

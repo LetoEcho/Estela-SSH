@@ -107,7 +107,8 @@
       }
     } @else if (type() === 'rdp') {
       <label for="domain">Dominio</label>
-      <input id="domain" formControlName="domain" placeholder="(opcional) CORP" />
+      <input id="domain" formControlName="domain" placeholder="(opcional) CORP"
+             title="También puedes escribirlo en Usuario, como DOMINIO\usuario; entonces este campo se ignora." />
     }
 
     @if (secretKind(); as kind) {

@@ -9,7 +9,7 @@ import type { RdpCerts } from '../store/rdp-certs';
 import type { SecretStore } from '../store/secrets';
 import type { TunnelManager } from '../ssh/tunnels';
 import { freerdpArgs, type FreerdpTarget } from './freerdp-args';
-import { mstscCredTarget, mstscFile } from './mstsc-file';
+import { mstscCredTarget, mstscFile, rdpUser } from './mstsc-file';
 
 const LOG_LINES = 40;
 /** A connection alive this long is taken as "the password worked" (FreeRDP gives no explicit signal). */
@@ -148,7 +148,7 @@ export class RdpLauncher {
     emit: (state: RdpStatus['state'], error?: string) => void,
   ): Promise<void> {
     const cred = mstscCredTarget(target.host);
-    const user = `${s.domain ? `${s.domain}\\` : ''}${s.username}`;
+    const user = rdpUser(s);
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'estela-rdp-'));
     try {
       // The file name shows in mstsc's title bar.
