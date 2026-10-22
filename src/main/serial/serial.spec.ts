@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { ConnStatus } from '../../shared/ipc';
 import type { SerialSession } from '../../shared/session';
 import type { ShellEvents } from '../ssh/connection';
-import { SerialPane, serialOptions, toDevice } from './serial';
+import { SerialPane, explainOpenError, serialOptions, toDevice } from './serial';
 
 const PATH = '/dev/estela-mock';
 
@@ -72,6 +72,15 @@ describe('toDevice', () => {
     expect(toDevice('a\rb\r', 'cr')).toBe('a\rb\r');
     expect(toDevice('a\rb\r', 'lf')).toBe('a\nb\n');
     expect(toDevice('a\rb\r', 'crlf')).toBe('a\r\nb\r\n');
+  });
+});
+
+describe('explainOpenError', () => {
+  it('explains the two settings only Windows supports and leaves anything else alone', () => {
+    // What the unix binding really answers (serialport_unix.cpp): a number, with no hint.
+    expect(explainOpenError('Error: Invalid parity setting 4')).toMatch(/mark ni space.*Invalid parity setting 4/s);
+    expect(explainOpenError('Error: Invalid stop bits setting 3')).toMatch(/1,5 bits de parada/);
+    expect(explainOpenError('Opening COM3: Access denied')).toBe('Opening COM3: Access denied');
   });
 });
 

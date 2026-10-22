@@ -111,7 +111,13 @@ export class SessionEditor implements OnInit {
   protected readonly tunnels = signal<Tunnel[]>([]);
   protected readonly ports = signal<SerialPortInfo[]>([]);
   protected readonly bauds = BAUD_RATES;
-  protected readonly parities = PARITIES.map((p) => ({ value: p, label: PARITY_LABELS[p] }));
+  // Only the Windows driver has mark/space parity and 1.5 stop bits; elsewhere the port refuses to open.
+  private readonly winOnly = estela.os === 'win32' ? '' : ' (solo Windows)';
+  protected readonly stopBitChoices = [1, 1.5, 2].map((s) => ({ value: s, label: `${s} stop${s === 1.5 ? this.winOnly : ''}` }));
+  protected readonly parities = PARITIES.map((p) => ({
+    value: p,
+    label: PARITY_LABELS[p] + (p === 'mark' || p === 'space' ? this.winOnly : ''),
+  }));
   protected readonly flowControls = FLOW_CONTROLS.map((f) => ({ value: f, label: FLOW_LABELS[f] }));
   protected readonly newlines = NEWLINES.map((n) => ({ value: n, label: NEWLINE_LABELS[n] }));
 

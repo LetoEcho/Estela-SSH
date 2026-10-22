@@ -87,7 +87,10 @@ test/          integration tests: in-process ssh2 servers; real-server.ts wraps 
   so the SFTP panel is SSH-only (`Pane.noSftp`). Per session: speed, data bits, parity, stop bits, flow control
   (none / RTS-CTS / XON-XOFF), what Enter sends (CR, LF or CRLF, applied to pasted CRs too) and local echo, which
   most devices need because they do not echo themselves. Bytes are decoded with a streaming UTF-8 `StringDecoder`
-  so a character split across two reads survives. Session logs work as they do for SSH.
+  so a character split across two reads survives. Session logs work as they do for SSH. Mark/space parity and 1.5
+  stop bits exist only in the Windows binding: the dialog marks them "(solo Windows)" elsewhere, and because a
+  `sessions.json` written on Windows travels, `explainOpenError` turns the binding's "Invalid parity setting 4"
+  into a sentence that says what to pick instead.
 - **Multi-exec**: renderer only. Input typed in a selected pane is written to every selected, connected pane (any tab).
 - **RDP (phase A)**: external FreeRDP 3 window. Password via stdin (`/from-stdin:force`), never in argv. FreeRDP
   cannot ask about certificates without a TTY: it prints "Certificate details … Thumbprint" and aborts; we parse it,
@@ -139,7 +142,7 @@ test/          integration tests: in-process ssh2 servers; real-server.ts wraps 
 | Terminal copy/paste | Ctrl+Shift+C/V, Shift+Insert, copy on select, right-click paste | same (as Windows Terminal) |
 | Panes | Ctrl+Shift+E split right, Ctrl+Shift+O split down, Ctrl+Shift+W close, Alt+arrows focus | same |
 | Local shells | /etc/shells (+ $SHELL first), OSC 7 via rc files | PowerShell 7, Windows PowerShell, cmd, Git Bash, WSL (no OSC 7) |
-| Serial ports | `/dev/ttyUSB0`, `/dev/ttyACM0`… (the user must be in `dialout`) | `COM3`… (`serial:list` shows Windows' friendly name) |
+| Serial ports | `/dev/ttyUSB0`, `/dev/ttyACM0`… (the user must be in `dialout`); no mark/space parity, no 1.5 stop bits | `COM3`… (`serial:list` shows Windows' friendly name); every parity and stop-bit setting works |
 | cwd of a local process | /proc/<pid>/cwd | not available (unused: SFTP is SSH-only) |
 | RDP client | xfreerdp3 / xfreerdp / sdl-freerdp3 | mstsc + .rdp + CredWrite via stdin |
 | Raise RDP window | xdotool or wmctrl (X11; not Wayland) | AppActivate by pid |

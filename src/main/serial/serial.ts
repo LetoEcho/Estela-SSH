@@ -50,6 +50,19 @@ export function toDevice(data: string, newline: Newline): string {
 /** A terminal only moves to column 0 on CR and down a line on LF, so a local echo of Enter needs both. */
 export const toEcho = (data: string): string => data.replace(/\r/g, '\r\n');
 
+// Only the Windows binding sets MARKPARITY / SPACEPARITY / ONE5STOPBITS; the unix one answers
+// "Invalid parity setting 4" and leaves the user guessing. These settings travel in sessions.json,
+// so a session written on Windows can reach a Linux machine and must explain itself there.
+const SETTING_ERRORS: [RegExp, string][] = [
+  [/invalid parity setting/i, 'Este sistema no admite paridad mark ni space (solo Windows): usa ninguna, par o impar.'],
+  [/invalid stop bits setting/i, 'Este sistema no admite 1,5 bits de parada (solo Windows): usa 1 o 2.'],
+];
+
+export function explainOpenError(message: string): string {
+  const known = SETTING_ERRORS.find(([re]) => re.test(message));
+  return known ? `${known[1]} (${message})` : message;
+}
+
 /** A serial console in a pane; same surface as SshShell / LocalPty for the renderer. */
 export class SerialPane {
   private port?: PortLike;
@@ -86,7 +99,7 @@ export class SerialPane {
   private fail(e: Error): void {
     if (this.closed) return;
     this.closed = true;
-    this.events.status('error', e.message);
+    this.events.status('error', explainOpenError(e.message));
   }
 
   write(data: string): void {

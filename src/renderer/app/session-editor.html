@@ -54,8 +54,8 @@
           }
         </select>
         <select formControlName="stopBits" title="Bits de parada">
-          @for (s of [1, 1.5, 2]; track s) {
-            <option [ngValue]="s">{{ s }} stop</option>
+          @for (s of stopBitChoices; track s.value) {
+            <option [ngValue]="s.value">{{ s.label }}</option>
           }
         </select>
       </div>
