@@ -31,7 +31,7 @@ export function shellCandidates(env: Record<string, string | undefined>): LocalS
 }
 
 /** Runs a PowerShell script (no user data in it) feeding `stdin`; resolves with stdout. */
-function powershell(script: string, stdin = ''): Promise<string> {
+export function powershell(script: string, stdin = ''): Promise<string> {
   const exe = path.win32.join(process.env['SystemRoot'] ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
   const encoded = Buffer.from(script, 'utf16le').toString('base64');
   return new Promise((resolve, reject) => {
@@ -43,11 +43,15 @@ function powershell(script: string, stdin = ''): Promise<string> {
 }
 
 // Credential Manager entry for mstsc. Every value (including the password) arrives on stdin,
-// so nothing sensitive is on any command line.
+// so nothing sensitive is on any command line. Stdin is read as UTF-8 through a StreamReader of
+// our own: [Console]::In decodes redirected input with the console's OEM code page, which turns
+// "Contraseña" into "Contrase├▒a". Setting [Console]::InputEncoding is not an option either
+// (it calls SetConsoleCP, which fails without a real console).
 const CRED_SCRIPT = `
 $ErrorActionPreference = 'Stop'
-$action = [Console]::In.ReadLine()
-$target = [Console]::In.ReadLine()
+$in = New-Object System.IO.StreamReader([Console]::OpenStandardInput(), (New-Object System.Text.UTF8Encoding $false))
+$action = $in.ReadLine()
+$target = $in.ReadLine()
 Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
@@ -72,7 +76,7 @@ public static class EstelaCred {
   public static void Delete(string target) { CredDeleteW(target, 1, 0); }
 }
 '@
-if ($action -eq 'write') { [EstelaCred]::Write($target, [Console]::In.ReadLine(), [Console]::In.ReadLine()) }
+if ($action -eq 'write') { $user = $in.ReadLine(); [EstelaCred]::Write($target, $user, $in.ReadLine()) }
 else { [EstelaCred]::Delete($target) }
 `;
 

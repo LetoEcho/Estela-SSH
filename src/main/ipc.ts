@@ -174,7 +174,7 @@ export function registerIpc(win: BrowserWindow, { sessions, secrets, knownHosts,
   const logs = new Map<string, SessionLog>();
   const defaultLogDir = () => path.join(app.getPath('documents'), 'Estela SSH logs');
   const closeLog = (connId: string) => {
-    logs.get(connId)?.close();
+    void logs.get(connId)?.close();
     logs.delete(connId);
   };
   const shellEvents = (connId: string): ShellEvents => ({
