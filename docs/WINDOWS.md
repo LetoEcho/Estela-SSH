@@ -13,7 +13,7 @@ Talk to the user in Spanish. Code, comments and commit messages in English. UI t
   (26200, x64, Electron 44, Node 24): see the verification checklist below for what was exercised and how.
   One real bug came out of it (accents in the mstsc credential, fixed with a regression test); everything else
   worked as designed.
-- CI (`.github/workflows/ci.yml`) includes `windows-latest` but has never run.
+- CI (`.github/workflows/ci.yml`) has now run the whole matrix on Windows too; see the last checklist item.
 
 ## Setting up the Windows machine
 
@@ -102,8 +102,13 @@ Git for Windows' bash and `sftp-server.exe` (the repo's own `test/real-server.ts
       (only Ctrl+Shift+Esc is, and we do not use it). No `win32` table needed in `keymap.ts`.
 - [x] `npm test` passes on Windows: 78 passed, 5 skipped (only `test/real.spec.ts`, which needs `/usr/bin/script`
       and OpenSSH's `sftp-server`). `test/tunnels.spec.ts` runs fine and needs no skip guard.
-- [ ] CI green on both `ubuntu-latest` and `windows-latest`; artifacts contain `.exe` and `.zip`. Nothing has been
-      pushed yet, so this is still untried.
+- [x] CI green on both `ubuntu-latest` and `windows-latest` (Node 24): `npm ci`, typecheck, tests, build and
+      `electron-builder` all pass on Windows, and the artifact uploads with `if-no-files-found: error`, so the
+      `release/*.exe` and `release/*.zip` globs really matched (369 MB for `estela-ssh-windows-latest`).
+      The workflow triggers on both `push` and `pull_request`, so a branch with a PR builds the same commit twice.
+      That second run is what caught the one flaky test: `session-log.spec.ts` slept 50 ms after `close()` and read
+      the file before the `WriteStream` had flushed on a loaded runner. `SessionLog.close()` now returns a promise
+      that resolves on flush and the test awaits it, so the assertion no longer depends on wall-clock time.
 
 ## Known risks and assumptions — status after the first Windows run
 

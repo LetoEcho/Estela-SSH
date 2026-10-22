@@ -48,7 +48,8 @@ export class SessionLog {
     this.out.write(stripAnsi(data.slice(0, cut)));
   }
 
-  close(): void {
-    this.out.end(stripAnsi(this.pending));
+  /** Flushes the tail and closes the file; resolves once everything is on disk. */
+  close(): Promise<void> {
+    return new Promise((done) => this.out.end(stripAnsi(this.pending), () => done()));
   }
 }

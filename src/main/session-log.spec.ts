@@ -17,8 +17,8 @@ describe('session log', () => {
     log.write('1mrojo\x1b[0m\r\n\x1b]7;file://h/ho');
     log.write('me\x1b');
     log.write('\\$ ');
-    log.close();
-    await new Promise((r) => setTimeout(r, 50));
+    // Awaiting the flush, not sleeping: a loaded CI runner needed more than 50 ms and read an empty file.
+    await log.close();
     expect(fs.readFileSync(log.file, 'utf8')).toBe('hola rojo\n$ ');
   });
 });
