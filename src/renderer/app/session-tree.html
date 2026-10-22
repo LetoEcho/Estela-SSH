@@ -46,12 +46,12 @@
 </ng-template>
 
 <ng-template #sessionRow let-s let-depth="depth">
-  <div class="row" [style.padding-left.px]="22 + depth * 14" draggable="true" [title]="s.username + '@' + s.host + ':' + s.port"
+  <div class="row" [style.padding-left.px]="22 + depth * 14" draggable="true" [title]="target(s, true)"
        (dragstart)="dragStart($event, 'session', s.id)" (dblclick)="connect(s)" (contextmenu)="sessionMenu($event, s)">
     <span class="swatch" [style.background]="s.color"></span>
     <app-icon [icon]="s.icon" />
     <span>{{ s.name }}</span>
-    <span class="host">{{ s.username }}&#64;{{ s.host }}</span>
+    <span class="host">{{ target(s) }}</span>
   </div>
 </ng-template>
 

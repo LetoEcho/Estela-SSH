@@ -13,7 +13,10 @@ const RECONNECT_DELAYS_S = [2, 4, 8, 16, 30];
 const NO_RETRY = /authenticat|host key|cancel|not found|no ssh agent|passphrase/i;
 
 /** What a pane connects to. */
-export type PaneTarget = { kind: 'ssh'; sessionId: string } | { kind: 'local'; shell: LocalShell };
+export type PaneTarget =
+  | { kind: 'ssh'; sessionId: string }
+  | { kind: 'local'; shell: LocalShell }
+  | { kind: 'serial'; sessionId: string };
 
 /** One connection shown in one terminal. */
 export class Pane {
@@ -40,8 +43,9 @@ export class Pane {
 
   constructor(readonly target: PaneTarget) {}
 
-  get isLocal(): boolean {
-    return this.target.kind === 'local';
+  /** Only SSH panes have SFTP and a cwd to follow. */
+  get noSftp(): boolean {
+    return this.target.kind !== 'ssh';
   }
 }
 
@@ -173,7 +177,7 @@ export class TabsService {
 
   open(session: Session): void {
     if (session.type === 'rdp') return this.openRdp(session);
-    this.add(new Tab(session, { kind: 'ssh', sessionId: session.id }));
+    this.add(new Tab(session, { kind: session.type, sessionId: session.id }));
   }
 
   openLocal(shell: LocalShell): void {
@@ -250,9 +254,9 @@ export class TabsService {
     pane.hook.set(null);
     const t = pane.target;
     const connId =
-      t.kind === 'ssh'
-        ? await estela.invoke('conn:open', t.sessionId, pane.cols, pane.rows)
-        : await estela.invoke('conn:openLocal', t.shell.path, pane.cols, pane.rows);
+      t.kind === 'local'
+        ? await estela.invoke('conn:openLocal', t.shell.path, pane.cols, pane.rows)
+        : await estela.invoke('conn:open', t.sessionId, pane.cols, pane.rows);
     pane.connId = connId;
     this.byConn.set(connId, pane);
   }

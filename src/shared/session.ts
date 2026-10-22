@@ -63,7 +63,34 @@ export interface RdpSession {
   viaSshSessionId?: string;
 }
 
-export type Session = SshSession | RdpSession;
+export type Parity = 'none' | 'even' | 'odd' | 'mark' | 'space';
+export type FlowControl = 'none' | 'rtscts' | 'xonxoff';
+/** What Enter (and every CR in pasted text) sends to the device. */
+export type Newline = 'cr' | 'lf' | 'crlf';
+
+/** Serial console over a COM / tty port, as MobaXterm's serial sessions. */
+export interface SerialSession {
+  type: 'serial';
+  id: string;
+  name: string;
+  folderId: string | null;
+  color: string;
+  icon: string;
+  /** `COM3` on Windows, `/dev/ttyUSB0` on Linux. Opened as given: it is a device, never a command. */
+  path: string;
+  baudRate: number;
+  dataBits: 5 | 6 | 7 | 8;
+  stopBits: 1 | 1.5 | 2;
+  parity: Parity;
+  flowControl: FlowControl;
+  newline: Newline;
+  /** Echo what is typed: serial devices usually do not echo by themselves. */
+  localEcho: boolean;
+  /** Save the session output to a log file. */
+  log?: boolean;
+}
+
+export type Session = SshSession | RdpSession | SerialSession;
 
 export interface SessionsFile {
   version: 1;
@@ -175,9 +202,54 @@ function validateRdp(o: Record<string, unknown>): RdpSession {
   return s;
 }
 
+/** Common serial speeds offered in the UI; any other integer is accepted too. */
+export const BAUD_RATES = [300, 1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600];
+export const PARITIES: readonly Parity[] = ['none', 'even', 'odd', 'mark', 'space'];
+export const FLOW_CONTROLS: readonly FlowControl[] = ['none', 'rtscts', 'xonxoff'];
+export const NEWLINES: readonly Newline[] = ['cr', 'lf', 'crlf'];
+
+function pick<T extends string>(o: Record<string, unknown>, k: string, allowed: readonly T[], fallback: T): T {
+  const v = o[k];
+  if (v === undefined || v === null || v === '') return fallback;
+  if (!allowed.includes(v as T)) fail(`${k} must be one of ${allowed.join(', ')}`);
+  return v as T;
+}
+
+function oneOfNum<T extends number>(o: Record<string, unknown>, k: string, allowed: readonly T[], fallback: T): T {
+  const v = o[k];
+  if (v === undefined || v === null) return fallback;
+  if (!allowed.includes(v as T)) fail(`${k} must be one of ${allowed.join(', ')}`);
+  return v as T;
+}
+
+function validateSerial(o: Record<string, unknown>): SerialSession {
+  const baudRate = o['baudRate'];
+  // The port is handed straight to the OS open(), so there is nothing to escape; only the speed needs a range.
+  if (!Number.isInteger(baudRate) || (baudRate as number) < 50 || (baudRate as number) > 4_000_000) fail('baudRate must be 50-4000000');
+  const s: SerialSession = {
+    type: 'serial',
+    id: str(o, 'id')!,
+    name: str(o, 'name')!,
+    folderId: str(o, 'folderId', true) ?? null,
+    color: str(o, 'color', true) ?? '#4a90d9',
+    icon: icon(o) ?? '🔌',
+    path: str(o, 'path')!,
+    baudRate: baudRate as number,
+    dataBits: oneOfNum(o, 'dataBits', [5, 6, 7, 8] as const, 8),
+    stopBits: oneOfNum(o, 'stopBits', [1, 1.5, 2] as const, 1),
+    parity: pick(o, 'parity', PARITIES, 'none'),
+    flowControl: pick(o, 'flowControl', FLOW_CONTROLS, 'none'),
+    newline: pick(o, 'newline', NEWLINES, 'cr'),
+    localEcho: o['localEcho'] === true,
+  };
+  if (o['log'] === true) s.log = true;
+  return s;
+}
+
 export function validateSession(x: unknown): Session {
   const o = obj(x, 'session');
   if (o['type'] === 'rdp') return validateRdp(o);
+  if (o['type'] === 'serial') return validateSerial(o);
   if (o['type'] !== 'ssh') fail(`unsupported session type ${String(o['type'])}`);
   const port = o['port'];
   if (!Number.isInteger(port) || (port as number) < 1 || (port as number) > 65535) fail('port must be 1-65535');

@@ -73,6 +73,14 @@ export interface LocalShell {
   name: string;
 }
 
+/** A serial port the OS reports; only what the session dialog shows. */
+export interface SerialPortInfo {
+  /** COM3, /dev/ttyUSB0… */
+  path: string;
+  /** Windows' friendly name ("USB Serial Port (COM3)") or the manufacturer, when known. */
+  label?: string;
+}
+
 export interface TunnelStatus {
   sessionId: string;
   tunnelId: string;
@@ -135,6 +143,8 @@ export interface InvokeApi {
   'transfer:cancel': (id: string) => void;
   'local:shells': () => LocalShell[];
   'conn:openLocal': (shellPath: string, cols: number, rows: number) => string;
+  /** Serial ports the OS reports, for the session dialog. */
+  'serial:list': () => SerialPortInfo[];
   'tunnel:list': () => TunnelStatus[];
   'tunnel:start': (sessionId: string, tunnelId: string) => void;
   'tunnel:stop': (tunnelId: string) => void;
@@ -193,7 +203,7 @@ export const INVOKE_CHANNELS = [
   'secrets:acceptInsecure', 'secrets:has', 'secrets:set', 'dialog:openFile', 'dialog:pickIcon', 'dialog:openFiles',
   'dialog:openDir', 'conn:open', 'conn:cwd', 'sftp:home', 'sftp:list', 'sftp:mkdir', 'sftp:rename', 'sftp:delete',
   'sftp:chmod', 'transfer:conflicts', 'transfer:upload', 'transfer:download', 'transfer:cancel', 'local:shells',
-  'conn:openLocal', 'tunnel:list', 'tunnel:start', 'tunnel:stop', 'rdp:launch', 'rdp:focus', 'rdp:stop',
+  'conn:openLocal', 'serial:list', 'tunnel:list', 'tunnel:start', 'tunnel:stop', 'rdp:launch', 'rdp:focus', 'rdp:stop',
   'import:sshConfig', 'import:knownHosts', 'settings:get', 'settings:set', 'app:info', 'editor:open', 'editor:load', 'editor:save',
 ] as const satisfies readonly (keyof InvokeApi)[];
 export const SEND_CHANNELS = ['conn:write', 'conn:resize', 'conn:close', 'prompt:answer', 'conn:retryHook', 'sftp:dragOut'] as const satisfies readonly (keyof SendApi)[];

@@ -2,6 +2,7 @@ import { Injectable, computed, signal } from '@angular/core';
 import type { SecretStatus } from '../../shared/ipc';
 import { emptySessionsFile, type Folder, type Session, type SessionsFile } from '../../shared/session';
 import { estela } from './estela';
+import { sessionTarget } from './format';
 
 export interface FolderNode {
   folder: Folder;
@@ -41,7 +42,7 @@ export class SessionsService {
   search(q: string): Session[] {
     const needle = q.trim().toLowerCase();
     return this.data().sessions.filter((s) =>
-      [s.name, s.host, s.username].some((v) => v.toLowerCase().includes(needle)),
+      [s.name, sessionTarget(s)].some((v) => v.toLowerCase().includes(needle)),
     );
   }
 

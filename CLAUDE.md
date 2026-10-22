@@ -1,6 +1,6 @@
 # Estela SSH
 
-SSH, SFTP and RDP desktop client in the spirit of MobaXterm, for personal use. Electron + Angular + ssh2 + xterm.js.
+SSH, SFTP, RDP and serial desktop client in the spirit of MobaXterm, for personal use. Electron + Angular + ssh2 + xterm.js.
 Linux and Windows (Windows layer written on Linux; verify on a real Windows machine — see docs/WINDOWS.md).
 
 Talk to the user in Spanish. Code, comments and commit messages in English. UI text in Spanish.
@@ -30,6 +30,7 @@ src/main/      Electron main: ssh2, stores, dialogs, platform layer
   store/       sessions.json, secrets.json (safeStorage), known_hosts (OpenSSH format)
   ssh/         SshConnection (jump chain + auth) → SshShell (pane), sftp helpers, transfer queue, tunnels, socks5
   local/       LocalPty (node-pty) for local terminals
+  serial/      SerialPane (serialport) for COM / tty consoles
   rdp/         FreeRDP args / mstsc .rdp file builders and the launcher (external window)
   editor.ts    remote file editing (internal Monaco window or external editor + upload on save)
   sftp-ipc.ts  SFTP / transfer / drag-out IPC handlers
@@ -80,6 +81,13 @@ test/          integration tests: in-process ssh2 servers; real-server.ts wraps 
 - **Local terminals**: node-pty (N-API, so no per-Electron rebuild; must stay `external` in esbuild). OSC 7 without
   typing anything: bash `--rcfile` (sources ~/.bashrc; Debian still reads /etc/bash.bashrc), zsh `ZDOTDIR` chain,
   fish `--init-command`. The renderer may only open shells listed by `platform.localShells()`.
+- **Serial (COM)**: `SerialPane` wraps a `serialport` stream with the same surface as `SshShell`/`LocalPty`, so a serial
+  session is an ordinary terminal pane and `conn:open` just branches on the session type (no new channel but
+  `serial:list`, which fills the port dropdown). A serial line has no window size (`resize` is a no-op) and no cwd,
+  so the SFTP panel is SSH-only (`Pane.noSftp`). Per session: speed, data bits, parity, stop bits, flow control
+  (none / RTS-CTS / XON-XOFF), what Enter sends (CR, LF or CRLF, applied to pasted CRs too) and local echo, which
+  most devices need because they do not echo themselves. Bytes are decoded with a streaming UTF-8 `StringDecoder`
+  so a character split across two reads survives. Session logs work as they do for SSH.
 - **Multi-exec**: renderer only. Input typed in a selected pane is written to every selected, connected pane (any tab).
 - **RDP (phase A)**: external FreeRDP 3 window. Password via stdin (`/from-stdin:force`), never in argv. FreeRDP
   cannot ask about certificates without a TTY: it prints "Certificate details … Thumbprint" and aborts; we parse it,
@@ -115,9 +123,12 @@ test/          integration tests: in-process ssh2 servers; real-server.ts wraps 
 - **Portable build**: `PORTABLE_EXECUTABLE_DIR` set → data in `<exe dir>/estela-ssh-data` (DPAPI secrets stay
   tied to the Windows user, so they do not travel with it).
 - **Packaging**: `npmRebuild: false` (natives are N-API prebuilds or optional), which also allows building Windows
-  packages from Linux. Only `ssh2` and `node-pty` are runtime dependencies; everything for the renderer is a devDependency (bundled by Angular).
+  packages from Linux. Only `ssh2`, `node-pty` and `serialport` are runtime dependencies; everything for the renderer
+  is a devDependency (bundled by Angular). The prebuilds for architectures we never ship are excluded in
+  `electron-builder.yml`.
 - npm 11 `allowScripts` in package.json: esbuild/electron-winstaller scripts allowed; ssh2/cpu-features native builds
-  denied (ssh2 works in pure JS).
+  denied (ssh2 works in pure JS), and `@serialport/bindings-cpp` too (it ships N-API prebuilds, so `node-gyp-build`
+  has nothing to do at install time).
 
 ## OS differences
 
@@ -128,6 +139,7 @@ test/          integration tests: in-process ssh2 servers; real-server.ts wraps 
 | Terminal copy/paste | Ctrl+Shift+C/V, Shift+Insert, copy on select, right-click paste | same (as Windows Terminal) |
 | Panes | Ctrl+Shift+E split right, Ctrl+Shift+O split down, Ctrl+Shift+W close, Alt+arrows focus | same |
 | Local shells | /etc/shells (+ $SHELL first), OSC 7 via rc files | PowerShell 7, Windows PowerShell, cmd, Git Bash, WSL (no OSC 7) |
+| Serial ports | `/dev/ttyUSB0`, `/dev/ttyACM0`… (the user must be in `dialout`) | `COM3`… (`serial:list` shows Windows' friendly name) |
 | cwd of a local process | /proc/<pid>/cwd | not available (unused: SFTP is SSH-only) |
 | RDP client | xfreerdp3 / xfreerdp / sdl-freerdp3 | mstsc + .rdp + CredWrite via stdin |
 | Raise RDP window | xdotool or wmctrl (X11; not Wayland) | AppActivate by pid |
@@ -140,6 +152,10 @@ test/          integration tests: in-process ssh2 servers; real-server.ts wraps 
 - `test/ssh.spec.ts` spins up ssh2 servers in-process (password, encrypted key, jump host, host-key change).
 - `test/real.spec.ts` runs the shell hook and SFTP against real bash and OpenSSH's sftp-server (skipped if missing).
 - `test/tunnels.spec.ts` runs L/R/D tunnels end to end against the real test server (which also forwards ports).
+- `src/main/serial/serial.spec.ts` drives `SerialPane` through `SerialPortMock` (shipped with serialport), so the whole
+  class runs for real without hardware: open, data in, newline translation, local echo, hang-up and open errors.
+  End to end it was only exercised against a port that does not exist (the error reaches the pane, from source and
+  from the packaged app): **no real device has been attached yet**, so speed and flow control are unproven.
 - RDP was verified by hand against `freerdp-shadow-cli3` (package freerdp3-shadow-x11, extracted with
   `apt-get download`, `/sam-file` with an NT hash). It writes its own cert to ~/.config/freerdp/shadow — clean up.
   zsh and fish hooks are not covered locally (not installed on the dev machine).
@@ -154,5 +170,6 @@ test/          integration tests: in-process ssh2 servers; real-server.ts wraps 
    (FreeRDP, certificate pinning, via SSH), import ~/.ssh/config & known_hosts, settings dialog.
 4. ✅ Settings (theme, fonts, scrollback, copy/paste behaviour, keepalive, auto-reconnect), terminal search
    (Ctrl+Shift+F), session logs, handshake timeout, window state, app icon, Linux packaging metadata.
-5. Optional: X11 forwarding, embedded RDP (give pros/cons first, incl. FreeRDP on Windows).
+5. ✅ Serial (COM / tty) sessions: port list, speed and line settings, flow control, Enter translation, local echo, logs.
+6. Optional: X11 forwarding, embedded RDP (give pros/cons first, incl. FreeRDP on Windows).
 W. ✅ (untested on real Windows) Windows platform layer, mstsc RDP, CI matrix with windows-latest, NSIS/portable/zip.
