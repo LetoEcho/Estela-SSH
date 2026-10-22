@@ -3,6 +3,7 @@ import { Component, computed, inject, output, signal } from '@angular/core';
 import type { Folder, Session } from '../../shared/session';
 import { ContextMenu, type MenuState } from './context-menu';
 import { cleanError, estela } from './estela';
+import { sessionTarget } from './format';
 import { NoticeService } from './notice.service';
 import { DEFAULT_FOLDER_ICON, DEFAULT_SESSION_ICON } from './constants';
 import { Icon } from './icon';
@@ -14,7 +15,7 @@ export interface EditRequest {
   session?: Session;
   folderId: string | null;
   /** Type for a new session. */
-  type?: 'ssh' | 'rdp';
+  type?: Session['type'];
 }
 
 const DRAG_TYPE = 'application/x-estela-item';
@@ -53,6 +54,7 @@ export class SessionTree {
   protected readonly iconTarget = signal<{ kind: 'folder'; item: Folder } | { kind: 'session'; item: Session } | null>(null);
   protected readonly defaultFolderIcon = DEFAULT_FOLDER_ICON;
   protected readonly defaultSessionIcon = DEFAULT_SESSION_ICON;
+  protected readonly target = sessionTarget;
 
   protected connect(s: Session): void {
     this.tabs.open(s);
@@ -144,6 +146,7 @@ export class SessionTree {
     this.openMenu(e, [
       { label: 'Nueva sesión SSH aquí…', action: () => this.edit.emit({ folderId: f.id }) },
       { label: 'Nueva sesión RDP aquí…', action: () => this.edit.emit({ folderId: f.id, type: 'rdp' }) },
+      { label: 'Nueva sesión serie aquí…', action: () => this.edit.emit({ folderId: f.id, type: 'serial' }) },
       { label: 'Nueva subcarpeta', action: () => void this.newFolder(f.id) },
       { label: 'Renombrar', action: () => this.renamingFolder.set(f.id) },
       { label: 'Cambiar icono…', action: () => this.iconTarget.set({ kind: 'folder', item: f }) },
@@ -161,6 +164,7 @@ export class SessionTree {
     this.openMenu(e, [
       { label: 'Nueva sesión SSH…', action: () => this.edit.emit({ folderId: null }) },
       { label: 'Nueva sesión RDP…', action: () => this.edit.emit({ folderId: null, type: 'rdp' }) },
+      { label: 'Nueva sesión serie…', action: () => this.edit.emit({ folderId: null, type: 'serial' }) },
       { label: 'Nueva carpeta', action: () => void this.newFolder(null) },
       { label: 'Exportar sesiones…', action: () => void this.sessions.export() },
       { label: 'Importar sesiones…', action: () => void this.importSessions() },

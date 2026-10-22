@@ -26,8 +26,10 @@ export class SessionStore {
     if (s.type === 'ssh' && s.jumpSessionId && this.jumpChainHas(s.jumpSessionId, s.id)) {
       throw new Error('Jump host chain would form a loop');
     }
-    const ref = s.type === 'ssh' ? s.jumpSessionId : s.viaSshSessionId;
-    if (ref && this.find(ref)?.type === 'rdp') throw new Error('Only SSH sessions can be used as jump hosts');
+    const ref = s.type === 'ssh' ? s.jumpSessionId : s.type === 'rdp' ? s.viaSshSessionId : undefined;
+    // An unknown id stays allowed (imports can save the hop afterwards); a known one must be SSH.
+    const refType = ref ? this.find(ref)?.type : undefined;
+    if (refType && refType !== 'ssh') throw new Error('Only SSH sessions can be used as jump hosts');
     upsert(this.data.sessions, s);
     this.persist();
   }

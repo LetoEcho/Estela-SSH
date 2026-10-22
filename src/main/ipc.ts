@@ -9,6 +9,7 @@ import { EditorManager } from './editor';
 import { LocalPty } from './local/pty';
 import { collapseHome } from './paths';
 import { RdpLauncher } from './rdp/rdp';
+import { SerialPane, listSerialPorts } from './serial/serial';
 import { SessionLog } from './session-log';
 import { platform } from './platform';
 import { Prompts } from './prompts';
@@ -78,7 +79,7 @@ export function registerIpc(win: BrowserWindow, { sessions, secrets, knownHosts,
 
   const changed = () => emit('sessions:changed', sessions.get());
   const prompts = new Prompts(emit);
-  const shells = new Map<string, SshShell | LocalPty>();
+  const shells = new Map<string, SshShell | LocalPty | SerialPane>();
   const connDeps = {
     findSession: (id: string) => sessions.find(id),
     secrets,
@@ -194,24 +195,34 @@ export function registerIpc(win: BrowserWindow, { sessions, secrets, knownHosts,
     hook: (r) => emit('conn:hook', { connId, ...r }),
   });
 
+  const startLog = (connId: string, name: string) => {
+    const dir = settings.get().logDir || defaultLogDir();
+    try {
+      logs.set(connId, new SessionLog(dir, name));
+    } catch (e) {
+      emit('app:notice', { message: `No se pudo crear el log: ${e instanceof Error ? e.message : e}` });
+    }
+  };
+
   handle('conn:open', (sessionId, cols, rows) => {
     const connId = randomUUID();
-    const shell = new SshShell(connDeps, shellEvents(connId));
-    shells.set(connId, shell);
     const [id, c, r] = [str(sessionId), int(cols), int(rows)];
     const session = sessions.find(id);
-    if (session?.type === 'ssh' && session.log) {
-      const dir = settings.get().logDir || defaultLogDir();
-      try {
-        logs.set(connId, new SessionLog(dir, session.name));
-      } catch (e) {
-        emit('app:notice', { message: `No se pudo crear el log: ${e instanceof Error ? e.message : e}` });
-      }
+    if ((session?.type === 'ssh' || session?.type === 'serial') && session.log) startLog(connId, session.name);
+    // Both branches defer the open so the renderer has the connId before the first status event arrives.
+    if (session?.type === 'serial') {
+      const serial = new SerialPane(shellEvents(connId));
+      shells.set(connId, serial);
+      setImmediate(() => serial.open(session));
+      return connId;
     }
-    // Deferred so the renderer has the connId before the first status event arrives.
+    const shell = new SshShell(connDeps, shellEvents(connId));
+    shells.set(connId, shell);
     setImmediate(() => void shell.open(id, c, r));
     return connId;
   });
+
+  handle('serial:list', () => listSerialPorts());
 
   handle('local:shells', () => platform.localShells());
   handle('conn:openLocal', (shellPath, cols, rows) => {

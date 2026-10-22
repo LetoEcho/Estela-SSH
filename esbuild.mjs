@@ -8,7 +8,8 @@ const common = {
   format: 'cjs',
   sourcemap: true,
   logLevel: 'info',
-  external: ['electron', 'ssh2', 'node-pty'],
+  // Natives must stay external: node-gyp-build finds their prebuilds relative to their own directory.
+  external: ['electron', 'ssh2', 'node-pty', 'serialport'],
 };
 const configs = [
   { ...common, entryPoints: ['src/main/main.ts'], outfile: 'dist/main/main.js' },

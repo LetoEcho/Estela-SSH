@@ -1,7 +1,23 @@
 import { Component, ElementRef, OnInit, afterNextRender, computed, inject, input, output, signal, viewChild } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { NonNullableFormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
-import type { RdpSession, SecretKind, Session, SshAuth, SshSession, Tunnel } from '../../shared/session';
+import type { SerialPortInfo } from '../../shared/ipc';
+import {
+  BAUD_RATES,
+  FLOW_CONTROLS,
+  NEWLINES,
+  PARITIES,
+  type FlowControl,
+  type Newline,
+  type Parity,
+  type RdpSession,
+  type SecretKind,
+  type SerialSession,
+  type Session,
+  type SshAuth,
+  type SshSession,
+  type Tunnel,
+} from '../../shared/session';
 import { COLORS, DEFAULT_SESSION_ICON } from './constants';
 import { cleanError, estela } from './estela';
 import { Icon } from './icon';
@@ -10,6 +26,13 @@ import type { EditRequest } from './session-tree';
 import { SessionsService } from './sessions.service';
 
 const DEFAULT_RDP_ICON = '🪟';
+const DEFAULT_SERIAL_ICON = '🔌';
+type SessionType = Session['type'];
+const TYPE_ICONS: Record<SessionType, string> = { ssh: DEFAULT_SESSION_ICON, rdp: DEFAULT_RDP_ICON, serial: DEFAULT_SERIAL_ICON };
+/** Spanish labels for the serial selects; the stored values stay the English ones. */
+const PARITY_LABELS: Record<Parity, string> = { none: 'Ninguna', even: 'Par', odd: 'Impar', mark: 'Mark', space: 'Space' };
+const FLOW_LABELS: Record<FlowControl, string> = { none: 'Ninguno', rtscts: 'Hardware (RTS/CTS)', xonxoff: 'Software (XON/XOFF)' };
+const NEWLINE_LABELS: Record<Newline, string> = { cr: 'CR (\\r)', lf: 'LF (\\n)', crlf: 'CR+LF (\\r\\n)' };
 
 @Component({
   selector: 'app-session-editor',
@@ -23,6 +46,7 @@ const DEFAULT_RDP_ICON = '🪟';
     .warn { background: color-mix(in srgb, var(--warn) 20%, transparent); padding: 8px; border-radius: 4px; grid-column: 1 / -1; }
     .error { color: var(--danger); grid-column: 1 / -1; }
     .row { display: flex; gap: 4px; align-items: center; }
+    .dim { color: var(--fg-dim); }
     .row input:not([type='checkbox']) { flex: 1; min-width: 0; }
     .wide { grid-column: 1 / -1; }
     .checks { display: flex; gap: 14px; flex-wrap: wrap; }
@@ -41,7 +65,7 @@ export class SessionEditor implements OnInit {
   protected readonly colors = COLORS;
   protected readonly pickingIcon = signal(false);
   protected readonly form = inject(NonNullableFormBuilder).group({
-    type: ['ssh' as 'ssh' | 'rdp'],
+    type: ['ssh' as SessionType],
     name: ['', Validators.required],
     host: ['', Validators.required],
     port: [22, [Validators.required, Validators.min(1), Validators.max(65535)]],
@@ -66,16 +90,36 @@ export class SessionEditor implements OnInit {
     drives: [false],
     gateway: [''],
     viaSshSessionId: [''],
+    // serial (disabled unless the session is one, so SSH/RDP are not held back by their validators)
+    path: ['', Validators.required],
+    baudRate: [9600, [Validators.required, Validators.min(50), Validators.max(4_000_000)]],
+    dataBits: [8 as 5 | 6 | 7 | 8],
+    stopBits: [1 as 1 | 1.5 | 2],
+    parity: ['none' as Parity],
+    flowControl: ['none' as FlowControl],
+    newline: ['cr' as Newline],
+    localEcho: [false],
   });
-  protected readonly type = toSignal(this.form.controls.type.valueChanges, { initialValue: 'ssh' as 'ssh' | 'rdp' });
+  protected readonly type = toSignal(this.form.controls.type.valueChanges, { initialValue: 'ssh' as SessionType });
   protected readonly auth = toSignal(this.form.controls.auth.valueChanges, { initialValue: 'password' as SshAuth });
   protected readonly fullscreen = toSignal(this.form.controls.fullscreen.valueChanges, { initialValue: true });
   protected readonly secretKind = computed<SecretKind | null>(() =>
-    this.type() === 'rdp' || this.auth() === 'password' ? 'password' : this.auth() === 'key' ? 'passphrase' : null,
+    this.type() === 'serial' ? null : this.type() === 'rdp' || this.auth() === 'password' ? 'password' : this.auth() === 'key' ? 'passphrase' : null,
   );
   protected readonly hasSecret = signal(false);
   protected readonly error = signal('');
   protected readonly tunnels = signal<Tunnel[]>([]);
+  protected readonly ports = signal<SerialPortInfo[]>([]);
+  protected readonly bauds = BAUD_RATES;
+  // Only the Windows driver has mark/space parity and 1.5 stop bits; elsewhere the port refuses to open.
+  private readonly winOnly = estela.os === 'win32' ? '' : ' (solo Windows)';
+  protected readonly stopBitChoices = [1, 1.5, 2].map((s) => ({ value: s, label: `${s} stop${s === 1.5 ? this.winOnly : ''}` }));
+  protected readonly parities = PARITIES.map((p) => ({
+    value: p,
+    label: PARITY_LABELS[p] + (p === 'mark' || p === 'space' ? this.winOnly : ''),
+  }));
+  protected readonly flowControls = FLOW_CONTROLS.map((f) => ({ value: f, label: FLOW_LABELS[f] }));
+  protected readonly newlines = NEWLINES.map((n) => ({ value: n, label: NEWLINE_LABELS[n] }));
 
   /** Other SSH sessions (jump host / RDP "through"). */
   protected readonly sshSessions = computed(() =>
@@ -97,7 +141,11 @@ export class SessionEditor implements OnInit {
 
   ngOnInit(): void {
     const { session: s, folderId, type } = this.request();
-    if (s?.type === 'ssh') {
+    this.applyType(s?.type ?? type ?? 'ssh');
+    if (s?.type === 'serial') {
+      this.form.patchValue({ ...s, folderId: s.folderId ?? '', log: !!s.log });
+      void this.loadPorts();
+    } else if (s?.type === 'ssh') {
       this.form.patchValue({ ...s, keyPath: s.keyPath ?? '', jumpSessionId: s.jumpSessionId ?? '', initialDir: s.initialDir ?? '', folderId: s.folderId ?? '', log: !!s.log });
       this.tunnels.set(structuredClone(s.tunnels ?? []));
     } else if (s?.type === 'rdp') {
@@ -114,7 +162,7 @@ export class SessionEditor implements OnInit {
       });
     } else {
       this.form.patchValue({ folderId: folderId ?? '' });
-      if (type === 'rdp') this.setType('rdp');
+      if (type && type !== 'ssh') this.setType(type);
     }
     if (s) {
       void this.checkSecret(s.id);
@@ -123,13 +171,38 @@ export class SessionEditor implements OnInit {
   }
 
   /** Only for new sessions: switching type also switches the obvious defaults. */
-  protected setType(t: 'ssh' | 'rdp'): void {
+  protected setType(t: SessionType): void {
     const v = this.form.getRawValue();
+    const untouchedIcon = Object.values(TYPE_ICONS).includes(v.icon);
     this.form.patchValue({
       type: t,
       port: t === 'rdp' && v.port === 22 ? 3389 : t === 'ssh' && v.port === 3389 ? 22 : v.port,
-      icon: t === 'rdp' && v.icon === DEFAULT_SESSION_ICON ? DEFAULT_RDP_ICON : t === 'ssh' && v.icon === DEFAULT_RDP_ICON ? DEFAULT_SESSION_ICON : v.icon,
+      icon: untouchedIcon ? TYPE_ICONS[t] : v.icon,
     });
+    this.applyType(t);
+    if (t === 'serial') void this.loadPorts();
+  }
+
+  /** A type's own fields carry its validators; the other types' fields are disabled so they never block saving. */
+  private applyType(t: SessionType): void {
+    const c = this.form.controls;
+    const serial = t === 'serial';
+    for (const ctrl of [c.host, c.username, c.port]) {
+      if (serial) ctrl.disable();
+      else ctrl.enable();
+    }
+    for (const ctrl of [c.path, c.baudRate]) {
+      if (serial) ctrl.enable();
+      else ctrl.disable();
+    }
+  }
+
+  protected async loadPorts(): Promise<void> {
+    try {
+      this.ports.set(await estela.invoke('serial:list'));
+    } catch (e) {
+      this.error.set(cleanError(e));
+    }
   }
 
   private async checkSecret(id: string): Promise<void> {
@@ -143,7 +216,7 @@ export class SessionEditor implements OnInit {
   }
 
   protected setIcon(icon: string | null): void {
-    this.form.patchValue({ icon: icon ?? (this.type() === 'rdp' ? DEFAULT_RDP_ICON : DEFAULT_SESSION_ICON) });
+    this.form.patchValue({ icon: icon ?? TYPE_ICONS[this.type()] });
     this.pickingIcon.set(false);
   }
 
@@ -183,18 +256,30 @@ export class SessionEditor implements OnInit {
     if (kind && v.secret && !this.sessions.canStoreSecrets()) {
       return this.error.set('No hay llavero disponible: acepta el aviso o deja la contraseña vacía (se pedirá al conectar).');
     }
-    const base = {
+    const common = {
       id: this.request().session?.id ?? crypto.randomUUID(),
       name: v.name.trim(),
       folderId: v.folderId || null,
       color: v.color,
       icon: v.icon,
-      host: v.host.trim(),
-      port: v.port,
-      username: v.username.trim(),
     };
+    const base = { ...common, host: v.host.trim(), port: v.port, username: v.username.trim() };
     const session: Session =
-      v.type === 'ssh'
+      v.type === 'serial'
+        ? ({
+            ...common,
+            type: 'serial',
+            path: v.path.trim(),
+            baudRate: v.baudRate,
+            dataBits: v.dataBits,
+            stopBits: v.stopBits,
+            parity: v.parity,
+            flowControl: v.flowControl,
+            newline: v.newline,
+            localEcho: v.localEcho,
+            log: v.log || undefined,
+          } satisfies SerialSession)
+        : v.type === 'ssh'
         ? ({
             ...base,
             type: 'ssh',

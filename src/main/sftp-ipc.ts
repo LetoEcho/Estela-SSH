@@ -4,6 +4,7 @@ import path from 'node:path';
 import { app, nativeImage, type BrowserWindow } from 'electron';
 import type { EventApi, InvokeApi, SendApi, TransferDirection } from '../shared/ipc';
 import type { LocalPty } from './local/pty';
+import type { SerialPane } from './serial/serial';
 import { localName } from './paths';
 import { SshShell } from './ssh/connection';
 import { call, exists, list, mkdirp, remove, transferFile, walk } from './ssh/sftp';
@@ -18,7 +19,7 @@ type Emit = <K extends keyof EventApi>(ch: K, payload: EventApi[K]) => void;
 
 export interface SftpIpcDeps {
   win: BrowserWindow;
-  shells: Map<string, SshShell | LocalPty>;
+  shells: Map<string, SshShell | LocalPty | SerialPane>;
   handle: Handle;
   on: On;
   emit: Emit;
@@ -45,7 +46,7 @@ export function registerSftpIpc({ win, shells, handle, on, emit, str }: SftpIpcD
   };
   const shell = (id: unknown) => {
     const s = conn(id);
-    if (!(s instanceof SshShell)) throw new Error('SFTP no disponible en terminales locales');
+    if (!(s instanceof SshShell)) throw new Error('SFTP solo está disponible en sesiones SSH');
     return s;
   };
   const sftpOf = (id: unknown) => shell(id).sftp();

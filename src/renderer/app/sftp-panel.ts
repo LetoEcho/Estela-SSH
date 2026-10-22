@@ -70,7 +70,7 @@ export class SftpPanel implements OnDestroy {
     // First connection of a pane without cwd info yet: start at the remote home.
     effect(() => {
       const pane = this.pane();
-      if (!pane || pane.isLocal || !this.visible() || !this.connected() || pane.sftpPath()) return;
+      if (!pane || pane.noSftp || !this.visible() || !this.connected() || pane.sftpPath()) return;
       const hook = pane.hook();
       if (hook === null && pane.follow()) return; // the hook is about to report the cwd
       void estela.invoke('sftp:home', pane.connId!).then((home) => {
@@ -81,7 +81,7 @@ export class SftpPanel implements OnDestroy {
     effect(() => {
       const pane = this.pane();
       const path = this.path();
-      if (this.visible() && pane && !pane.isLocal && path && this.connected()) untracked(() => void this.load(pane, path));
+      if (this.visible() && pane && !pane.noSftp && path && this.connected()) untracked(() => void this.load(pane, path));
       else untracked(() => this.entries.set([]));
     });
     // Shells without OSC 7 but with a known pid: poll /proc while following.

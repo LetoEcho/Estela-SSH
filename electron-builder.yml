@@ -15,6 +15,10 @@ files:
   - '!node_modules/node-pty/prebuilds/darwin-*'
   - '!node_modules/node-pty/prebuilds/win32-arm64'
   - '!node_modules/node-pty/third_party/conpty/*/win10-arm64'
+  # Same for serialport: only linux-x64 and win32-x64 are ever loaded.
+  - '!node_modules/@serialport/bindings-cpp/prebuilds/{android,darwin}-*'
+  - '!node_modules/@serialport/bindings-cpp/prebuilds/linux-arm*'
+  - '!node_modules/@serialport/bindings-cpp/prebuilds/win32-{arm64,ia32}'
 linux:
   target: [AppImage, deb, rpm]
   category: Network

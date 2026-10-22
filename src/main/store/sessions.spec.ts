@@ -142,3 +142,45 @@ describe('RDP sessions and tunnels', () => {
     expect((st.find('s1') as SshSession).tunnels?.[0]).not.toHaveProperty('destHost');
   });
 });
+
+describe('serial sessions', () => {
+  const file = () => path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'estela-')), 'sessions.json');
+  const serial = { type: 'serial', id: 'c1', name: 'router', folderId: null, color: '#fff', path: 'COM3', baudRate: 115200 };
+
+  it('fills in the line defaults and keeps the port verbatim', () => {
+    const st = new SessionStore(file());
+    st.saveSession(serial);
+    expect(st.find('c1')).toEqual({
+      type: 'serial', id: 'c1', name: 'router', folderId: null, color: '#fff', icon: '🔌',
+      path: 'COM3', baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none', flowControl: 'none',
+      newline: 'cr', localEcho: false,
+    });
+  });
+
+  it('stores the line settings it is given', () => {
+    const st = new SessionStore(file());
+    st.saveSession({ ...serial, dataBits: 7, stopBits: 1.5, parity: 'even', flowControl: 'xonxoff', newline: 'crlf', localEcho: true, log: true });
+    expect(st.find('c1')).toMatchObject({ dataBits: 7, stopBits: 1.5, parity: 'even', flowControl: 'xonxoff', newline: 'crlf', localEcho: true, log: true });
+  });
+
+  it('rejects impossible line settings', () => {
+    const st = new SessionStore(file());
+    expect(() => st.saveSession({ ...serial, baudRate: 0 })).toThrow(/baudRate/);
+    expect(() => st.saveSession({ ...serial, baudRate: 9600.5 })).toThrow(/baudRate/);
+    expect(() => st.saveSession({ ...serial, dataBits: 9 })).toThrow(/dataBits/);
+    expect(() => st.saveSession({ ...serial, stopBits: 3 })).toThrow(/stopBits/);
+    expect(() => st.saveSession({ ...serial, parity: 'weird' })).toThrow(/parity/);
+    expect(() => st.saveSession({ ...serial, flowControl: 'both' })).toThrow(/flowControl/);
+    expect(() => st.saveSession({ ...serial, newline: 'lfcr' })).toThrow(/newline/);
+    expect(() => st.saveSession({ ...serial, path: '' })).toThrow(/path/);
+  });
+
+  it('cannot be used as a jump host and survives export/import', () => {
+    const st = new SessionStore(file());
+    st.saveSession(serial);
+    expect(() => st.saveSession(ssh({ id: 's9', jumpSessionId: 'c1' }))).toThrow(/Only SSH/);
+    const dst = new SessionStore(file());
+    dst.import(JSON.parse(st.export()));
+    expect(dst.find('c1')).toEqual(st.find('c1'));
+  });
+});
