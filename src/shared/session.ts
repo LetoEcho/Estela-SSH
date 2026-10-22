@@ -173,6 +173,9 @@ export function validateTunnel(x: unknown): Tunnel {
   return t;
 }
 
+/** Anything that could start a new line (or confuse a line-based protocol) in the files we write. */
+const CONTROL = /[\u0000-\u001f\u007f]/;
+
 function validateRdp(o: Record<string, unknown>): RdpSession {
   const screen = str(o, 'screen', true) ?? 'fullscreen';
   if (screen !== 'fullscreen' && !/^\d{3,5}x\d{3,5}$/.test(screen)) fail('screen must be fullscreen or WIDTHxHEIGHT');
@@ -195,9 +198,17 @@ function validateRdp(o: Record<string, unknown>): RdpSession {
     viaSshSessionId: str(o, 'viaSshSessionId', true),
   };
   if (s.port === 0) fail('port must be 1-65535');
-  // FreeRDP options are built from these: keep them free of separators that could inject options.
-  for (const [k, v] of Object.entries({ host: s.host, username: s.username, domain: s.domain, gateway: s.gateway })) {
-    if (v && /[\s,/\\]/.test(v)) fail(`${k} contains invalid characters`);
+  // A user name is "DOMINIO\usuario" more often than not, and nothing here can escape its field:
+  // FreeRDP is spawned with an argv array (no shell), so a value never becomes a second option.
+  // What can escape is a line: mstsc's .rdp file is "key:s:value" per line and the Windows
+  // credential is fed to PowerShell one line at a time, so control characters stay out.
+  for (const [k, v] of Object.entries({ username: s.username, domain: s.domain })) {
+    if (v && CONTROL.test(v)) fail(`${k} contains control characters`);
+  }
+  // Host and gateway are a name with a port, and the host is also the Credential Manager target
+  // ("TERMSRV/<host>"): a separator there would change what we connect to.
+  for (const [k, v] of Object.entries({ host: s.host, gateway: s.gateway })) {
+    if (v && (/[\s,/\\]/.test(v) || CONTROL.test(v))) fail(`${k} contains invalid characters`);
   }
   return s;
 }

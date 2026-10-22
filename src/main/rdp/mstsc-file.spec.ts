@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { RdpSession } from '../../shared/session';
-import { mstscCredTarget, mstscFile } from './mstsc-file';
+import { mstscCredTarget, mstscFile, rdpUser } from './mstsc-file';
 
 const s = (over: Partial<RdpSession> = {}): RdpSession => ({
   type: 'rdp', id: 'r', name: 'Servidor Win', folderId: null, color: '#fff', icon: 'x',
@@ -39,5 +39,19 @@ describe('mstscFile', () => {
 
   it('targets the credential mstsc looks up', () => {
     expect(mstscCredTarget('srv01.corp')).toBe('TERMSRV/srv01.corp');
+  });
+});
+
+describe('rdpUser', () => {
+  it('joins the domain field to the user name', () => {
+    expect(rdpUser(s({ domain: 'CORP' }))).toBe('CORP\\ana');
+    expect(rdpUser(s())).toBe('ana');
+  });
+
+  it('leaves a user name that already carries its domain alone', () => {
+    // Typing it in the user field is the habit; prefixing again would give CORP\DOMINIO\ana.
+    expect(rdpUser(s({ username: 'DOMINIO\\ana' }))).toBe('DOMINIO\\ana');
+    expect(rdpUser(s({ username: 'DOMINIO\\ana', domain: 'CORP' }))).toBe('DOMINIO\\ana');
+    expect(mstscFile(s({ username: 'DOMINIO\\ana', domain: 'CORP' }), { host: 'h', port: 1 }, 'C:\\')).toContain('username:s:DOMINIO\\ana\r\n');
   });
 });

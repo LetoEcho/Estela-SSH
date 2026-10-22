@@ -2,15 +2,22 @@ import type { RdpSession } from '../../shared/session';
 import type { FreerdpTarget } from './freerdp-args';
 
 /**
+ * The user name as mstsc wants it. A user who already typed "DOMINIO\usuario" keeps it: prefixing
+ * the domain field again would make "CORP\DOMINIO\usuario", which logs in nowhere.
+ */
+export const rdpUser = (s: RdpSession): string =>
+  s.domain && !s.username.includes('\\') ? `${s.domain}\\${s.username}` : s.username;
+
+/**
  * .rdp file for mstsc. No password here: it goes to Credential Manager (TERMSRV/<host>).
- * Field values were validated to contain no whitespace, so no line injection.
+ * Field values were validated to hold no control characters, so no line injection.
  * `driveRoot` (e.g. "C:\\") is the drive shared when the session shares the home folder.
  */
 export function mstscFile(s: RdpSession, target: FreerdpTarget, driveRoot: string): string {
   const [w, h] = s.screen === 'fullscreen' ? [] : s.screen.split('x');
   const lines = [
     `full address:s:${target.host}:${target.port}`,
-    `username:s:${s.domain ? `${s.domain}\\` : ''}${s.username}`,
+    `username:s:${rdpUser(s)}`,
     'prompt for credentials:i:0',
     // 2 = warn on certificate problems and let the user decide (mstsc shows its own dialog).
     'authentication level:i:2',
